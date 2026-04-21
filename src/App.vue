@@ -1,6 +1,19 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import * as d3 from 'd3'
+import {
+  allNames,
+  buildKeyframes,
+  createExplainedContext,
+  datevalues,
+  periodLabelForKeyframeDate,
+  rankFactory,
+  renderExplainedFrame,
+  sortedPeriodsFromRaw,
+  type ExplainedChartOptions,
+  type RawRaceRow,
+} from './lib/barChartRaceExplained'
+import { importBarChartRaceCsv } from './lib/importBarChartCsv'
 
 type RawDataItem = {
   name: string
@@ -8,11 +21,6 @@ type RawDataItem = {
   period: string
 }
 
-type RankedItem = {
-  name: string
-  value: number
-  rank: number
-}
 type LabelLayoutMode = 'mode1' | 'mode2' | 'mode3' | 'mode4'
 
 type NameItem = {
@@ -81,6 +89,14 @@ const selectedPeriodId = ref<string>(periods.value[0]?.id ?? '')
 const newPeriodText = ref('')
 
 const svgRef = ref<SVGSVGElement | null>(null)
+/** SVG в полноэкранной панели на узких экранах (< lg) */
+const svgRefMobile = ref<SVGSVGElement | null>(null)
+const csvFileInput = ref<HTMLInputElement | null>(null)
+/** Совпадает с Tailwind `lg:` (1024px): мобильная раскладка графика */
+const isMobileLayout = ref(
+  typeof window !== 'undefined' ? window.innerWidth < 1024 : false,
+)
+const chartPanelOpen = ref(false)
 const errorMessage = ref('')
 const countdown = ref<number | null>(null)
 const isAnimating = ref(false)
@@ -95,9 +111,6 @@ const selectedPeriod = computed(() =>
 
 const getNameByName = (name: string) => names.value.find((item) => item.name === name)
 const getBarColor = (name: string) => getNameByName(name)?.color ?? '#64748b'
-const lineHeightFactor = 1.2
-const stackedTextGapPx = 2
-
 const updateBarColor = (name: string, color: string) => {
   const item = getNameByName(name)
   if (!item) return
@@ -113,18 +126,6 @@ const randomizeAllBarColors = () => {
   names.value = names.value.map((item) => ({ ...item, color: randomColor() }))
 }
 
-const getStackedLabelY = (centerY: number, nameFontSize: number, valueFontSize: number) => {
-  const nameLineHeight = nameFontSize * lineHeightFactor
-  const valueLineHeight = valueFontSize * lineHeightFactor
-  const totalHeight = nameLineHeight + stackedTextGapPx + valueLineHeight
-  const startY = centerY - totalHeight / 2
-
-  return {
-    nameY: startY + nameLineHeight * 0.8,
-    valueY: startY + nameLineHeight + stackedTextGapPx + valueLineHeight * 0.8,
-  }
-}
-
 const getCurrentSettings = (): ChartRenderSettings => ({
   barHeightPx: barHeightPx.value,
   labelLayoutMode: labelLayoutMode.value,
@@ -133,26 +134,49 @@ const getCurrentSettings = (): ChartRenderSettings => ({
   labelColor: labelColor.value,
 })
 
+const resolveChartSvgEl = (): SVGSVGElement | null => {
+  if (isMobileLayout.value) {
+    return chartPanelOpen.value ? svgRefMobile.value : null
+  }
+  return svgRef.value
+}
+
+const syncMobileLayout = () => {
+  const next = typeof window !== 'undefined' && window.innerWidth < 1024
+  if (isMobileLayout.value !== next) {
+    isMobileLayout.value = next
+    if (!next) chartPanelOpen.value = false
+  }
+}
+
 const getChartDimensions = () => {
-  const containerWidth = svgRef.value?.clientWidth ?? 860
+  const containerWidth = resolveChartSvgEl()?.clientWidth ?? 860
   return {
     width: Math.max(320, containerWidth),
     height: 500,
   }
 }
 
-const getChartMargins = (settings: ChartRenderSettings, rawData: RawDataItem[]) => {
-  const maxNameLength = rawData.reduce((max, item) => Math.max(max, item.name.length), 0)
-  const estimatedNameWidth = Math.ceil(maxNameLength * settings.nameFontSizePx * 0.55)
-
-  const left =
-    settings.labelLayoutMode === 'mode1'
-      ? Math.max(24, Math.min(estimatedNameWidth + 16, 150))
-      : 16
-  const right = settings.labelLayoutMode === 'mode1' ? 56 : 16
-
-  return { top: 48, right, bottom: 30, left }
+const openChartPanel = () => {
+  chartPanelOpen.value = true
 }
+
+const closeChartPanel = () => {
+  chartPanelOpen.value = false
+}
+
+const onChartPanelKeydown = (e: KeyboardEvent) => {
+  if (e.key === 'Escape' && chartPanelOpen.value && isMobileLayout.value) {
+    closeChartPanel()
+  }
+}
+
+/** Как в Observable «Bar Chart Race, Explained»: верхняя ось, подписи у правого края бара, тикер */
+const explainedMargin = { top: 16, right: 6, bottom: 6, left: 0 }
+const keyframeSteps = 10
+const explainedDurationMs = 250
+
+let raceGeneration = 0
 
 const addName = () => {
   const name = newNameText.value.trim()
@@ -222,6 +246,45 @@ const removePeriod = (periodId: string) => {
   if (selectedPeriodId.value === periodId) {
     selectedPeriodId.value = periods.value[0]?.id ?? ''
   }
+}
+
+const triggerCsvPick = () => {
+  csvFileInput.value?.click()
+}
+
+const onCsvFile = (e: Event) => {
+  const input = e.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (!file) return
+
+  const reader = new FileReader()
+  reader.onload = () => {
+    const text = String(reader.result ?? '')
+    const res = importBarChartRaceCsv(text)
+    if (!res.ok) {
+      errorMessage.value = res.error
+      return
+    }
+    names.value = res.names.map((item) => ({ ...item }))
+    periods.value = res.periods.map((p) => ({
+      ...p,
+      values: p.values.map((v) => ({ ...v })),
+    }))
+    selectedPeriodId.value = periods.value[0]?.id ?? ''
+    errorMessage.value = ''
+    raceGeneration += 1
+    if (window.innerWidth < 1024) chartPanelOpen.value = true
+    void nextTick(() => {
+      if (!isAnimating.value && countdown.value === null) {
+        renderPreviewChart(collectDataForPreview())
+      }
+    })
+  }
+  reader.onerror = () => {
+    errorMessage.value = 'Не удалось прочитать файл.'
+  }
+  reader.readAsText(file, 'UTF-8')
 }
 
 const clearTimers = () => {
@@ -294,490 +357,87 @@ const collectDataForPreview = (): RawDataItem[] => {
 }
 
 const renderPreviewChart = (rawData: RawDataItem[]) => {
-  if (!svgRef.value) return
+  const svgEl = resolveChartSvgEl()
+  if (!svgEl) return
+  const raw = rawData as RawRaceRow[]
+  if (raw.length === 0) return
 
-  const svg = d3.select(svgRef.value)
-  svg.selectAll('*').remove()
+  const periodsOrdered = sortedPeriodsFromRaw(raw)
+  if (periodsOrdered.length === 0) return
 
-  if (rawData.length === 0) return
+  const dv = datevalues(raw, periodsOrdered)
+  const namesSet = allNames(raw)
+  const topN = Math.min(12, Math.max(1, namesSet.size))
+  const rank = rankFactory(namesSet, topN)
+  const keyframes = buildKeyframes(dv, keyframeSteps, rank)
+  if (keyframes.length === 0) return
 
-  const { width, height } = getChartDimensions()
-  const previewSettings = getCurrentSettings()
-  const margin = getChartMargins(previewSettings, rawData)
-  const barHeight = barHeightPx.value
-  const topN = 8
+  const { width } = getChartDimensions()
+  const options: ExplainedChartOptions = {
+    width,
+    topN,
+    barSize: barHeightPx.value,
+    durationMs: explainedDurationMs,
+    keyframeSteps,
+    margin: explainedMargin,
+    color: getBarColor,
+    labelFill: labelColor.value,
+  }
+  const labelFont = `bold ${nameFontSizePx.value}px var(--sans-serif, ui-sans-serif, system-ui, sans-serif)`
 
-  svg.attr('viewBox', `0 0 ${width} ${height}`)
+  const ctx = createExplainedContext(svgEl, keyframes, periodsOrdered, options, labelFont)
+  if (!ctx) return
 
-  const firstPeriod = rawData[0]?.period
-  const currentRows = rawData
-    .filter((d) => d.period === firstPeriod)
-    .sort((a, b) => b.value - a.value)
-    .slice(0, topN)
-
-  if (currentRows.length === 0) return
-
-  const x = d3
-    .scaleLinear()
-    .domain([0, d3.max(currentRows, (d) => d.value) ?? 1])
-    .range([margin.left, width - margin.right])
-
-  const y = d3
-    .scaleBand<number>()
-    .domain(d3.range(currentRows.length))
-    .range([margin.top, margin.top + barHeight * currentRows.length])
-    .padding(0.2)
-
-  const axisY = margin.top - 10
-
-  const axis = svg
-    .append('g')
-    .attr('transform', `translate(0, ${axisY})`)
-    .call(d3.axisBottom(x).ticks(5).tickSizeOuter(0))
-
-  axis.select('.domain').remove()
-  axis.selectAll('.tick line').remove()
-  axis.selectAll('.tick text').attr('fill', '#334155').style('font-size', '12px')
-
-  const barsGroup = svg.append('g')
-  const labelsGroup = svg.append('g')
-
-  barsGroup
-    .selectAll<SVGRectElement, RawDataItem>('rect')
-    .data(currentRows)
-    .join('rect')
-    .attr('x', margin.left)
-    .attr('y', (_, index) => y(index) ?? margin.top)
-    .attr('height', y.bandwidth())
-    .attr('width', (d) => x(d.value) - margin.left)
-    .attr('fill', (d) => getBarColor(d.name))
-
-  const barGridGroup = svg.append('g').style('pointer-events', 'none')
-  const barGridData = currentRows.flatMap((row, index) =>
-    x
-      .ticks(5)
-      .filter((tick) => tick > 0 && tick < row.value)
-      .map((tick) => ({ key: `${row.name}-${tick}`, tick, index })),
-  )
-
-  barGridGroup
-    .selectAll<SVGLineElement, { key: string; tick: number; index: number }>('line.value-grid')
-    .data(barGridData, (d) => d.key)
-    .join('line')
-    .attr('class', 'value-grid')
-    .attr('x1', (d) => x(d.tick))
-    .attr('x2', (d) => x(d.tick))
-    .attr('y1', (d) => y(d.index) ?? margin.top)
-    .attr('y2', (d) => (y(d.index) ?? margin.top) + y.bandwidth())
-    .attr('stroke', '#ffffff')
-    .attr('stroke-opacity', 0.55)
-
-  const labels = labelsGroup
-    .selectAll<SVGGElement, RawDataItem>('g.preview-label')
-    .data(currentRows)
-    .join('g')
-    .attr('class', 'preview-label')
-
-  labels.each(function (d, index) {
-    const group = d3.select(this)
-    group.selectAll('*').remove()
-
-    const center = (y(index) ?? margin.top) + y.bandwidth() / 2
-    const barEnd = x(d.value)
-
-    if (labelLayoutMode.value === 'mode1') {
-      group
-        .append('text')
-        .attr('x', margin.left - 6)
-        .attr('y', center)
-        .attr('dy', '0.35em')
-        .attr('text-anchor', 'end')
-        .attr('fill', labelColor.value)
-        .style('font-size', `${nameFontSizePx.value}px`)
-        .style('font-weight', '700')
-        .text(d.name)
-      group
-        .append('text')
-        .attr('x', barEnd + 6)
-        .attr('y', center)
-        .attr('dy', '0.35em')
-        .attr('text-anchor', 'start')
-        .attr('fill', labelColor.value)
-        .style('font-size', `${valueFontSizePx.value}px`)
-        .style('font-weight', '600')
-        .text(d.value.toFixed(0))
-    } else if (labelLayoutMode.value === 'mode2') {
-      group
-        .append('text')
-        .attr('x', margin.left + 8)
-        .attr('y', center)
-        .attr('dy', '0.35em')
-        .attr('text-anchor', 'start')
-        .attr('fill', labelColor.value)
-        .style('font-size', `${nameFontSizePx.value}px`)
-        .style('font-weight', '700')
-        .text(d.name)
-      group
-        .append('text')
-        .attr('x', barEnd - 8)
-        .attr('y', center)
-        .attr('dy', '0.35em')
-        .attr('text-anchor', 'end')
-        .attr('fill', labelColor.value)
-        .style('font-size', `${valueFontSizePx.value}px`)
-        .style('font-weight', '600')
-        .text(d.value.toFixed(0))
-    } else if (labelLayoutMode.value === 'mode3') {
-      const { nameY, valueY } = getStackedLabelY(center, nameFontSizePx.value, valueFontSizePx.value)
-      group
-        .append('text')
-        .attr('x', barEnd - 8)
-        .attr('y', nameY)
-        .attr('text-anchor', 'end')
-        .attr('fill', labelColor.value)
-        .style('font-size', `${nameFontSizePx.value}px`)
-        .style('font-weight', '700')
-        .text(d.name)
-      group
-        .append('text')
-        .attr('x', barEnd - 8)
-        .attr('y', valueY)
-        .attr('text-anchor', 'end')
-        .attr('fill', labelColor.value)
-        .style('font-size', `${valueFontSizePx.value}px`)
-        .style('font-weight', '600')
-        .text(d.value.toFixed(0))
-    } else {
-      const { nameY, valueY } = getStackedLabelY(center, nameFontSizePx.value, valueFontSizePx.value)
-      group
-        .append('text')
-        .attr('x', margin.left + 8)
-        .attr('y', nameY)
-        .attr('text-anchor', 'start')
-        .attr('fill', labelColor.value)
-        .style('font-size', `${nameFontSizePx.value}px`)
-        .style('font-weight', '700')
-        .text(d.name)
-      group
-        .append('text')
-        .attr('x', margin.left + 8)
-        .attr('y', valueY)
-        .attr('text-anchor', 'start')
-        .attr('fill', labelColor.value)
-        .style('font-size', `${valueFontSizePx.value}px`)
-        .style('font-weight', '600')
-        .text(d.value.toFixed(0))
-    }
-  })
-
-  svg
-    .append('text')
-    .attr('x', margin.left)
-    .attr('y', 28)
-    .attr('text-anchor', 'start')
-    .attr('class', 'fill-slate-600 text-3xl font-semibold')
-    .text(firstPeriod)
+  const first = keyframes[0]!
+  const tickerLabel = periodLabelForKeyframeDate(first[0], dv, periodsOrdered)
+  const t = d3.select(svgEl).transition().duration(0)
+  renderExplainedFrame(ctx, first, t, tickerLabel)
 }
 
 const runBarChartRace = async (rawData: RawDataItem[], settings: ChartRenderSettings) => {
-  if (!svgRef.value) return
+  const svgEl = resolveChartSvgEl()
+  if (!svgEl) return
+  const myGen = ++raceGeneration
 
-  const svg = d3.select(svgRef.value)
-  svg.selectAll('*').remove()
+  const raw = rawData as RawRaceRow[]
+  const periodsOrdered = sortedPeriodsFromRaw(raw)
+  if (periodsOrdered.length === 0) return
 
-  const { width, height } = getChartDimensions()
-  const margin = getChartMargins(settings, rawData)
-  const barHeight = settings.barHeightPx
-  const topN = 8
-  const frameDuration = 1000
-  const valueDuration = 1000
-  svg.attr('viewBox', `0 0 ${width} ${height}`)
+  const dv = datevalues(raw, periodsOrdered)
+  const namesSet = allNames(raw)
+  const topN = Math.min(12, Math.max(1, namesSet.size))
+  const rank = rankFactory(namesSet, topN)
+  const keyframes = buildKeyframes(dv, keyframeSteps, rank)
+  if (keyframes.length === 0) return
 
-  const periods = Array.from(new Set(rawData.map((d: RawDataItem) => d.period)))
-  const names = Array.from(new Set(rawData.map((d: RawDataItem) => d.name)))
-  const periodMap = d3.group(rawData, (d: RawDataItem) => d.period)
-
-  const rankedByPeriod = periods.map((period) => {
-    const current: RawDataItem[] = periodMap.get(period) ?? []
-    const values = new Map<string, number>(current.map((d: RawDataItem) => [d.name, d.value]))
-    const rows: RankedItem[] = names
-      .map((name) => ({ name, value: values.get(name) ?? 0, rank: 0 }))
-      .sort((a: RankedItem, b: RankedItem) => b.value - a.value)
-      .slice(0, topN)
-      .map((item, index) => ({ ...item, rank: index }))
-    return { period, rows }
-  })
-
-  const maxValue = d3.max(rankedByPeriod.flatMap((d) => d.rows.map((r) => r.value))) ?? 1
-
-  const x = d3
-    .scaleLinear()
-    .domain([0, maxValue])
-    .range([margin.left, width - margin.right])
-
-  const y = d3
-    .scaleBand<number>()
-    .domain(d3.range(topN))
-    .range([margin.top, margin.top + barHeight * topN])
-    .padding(0.2)
-
-  const axisY = margin.top - 10
-
-  const axis = svg
-    .append('g')
-    .attr('transform', `translate(0, ${axisY})`)
-    .call(d3.axisBottom(x).ticks(5).tickSizeOuter(0))
-    .call((g: d3.Selection<SVGGElement, unknown, null, undefined>) =>
-      g.select('.domain').attr('opacity', 0.3),
-    )
-
-  axis.select('.domain').remove()
-  axis.selectAll('.tick line').remove()
-  axis.selectAll('.tick text').attr('fill', '#334155').style('font-size', '12px')
-
-  const renderGrid = (rows: RankedItem[]) => {
-    const barGridData = rows.flatMap((row) =>
-      x
-        .ticks(5)
-        .filter((tick) => tick > 0 && tick < row.value)
-        .map((tick) => ({ key: `${row.name}-${tick}`, tick, rank: row.rank })),
-    )
-
-    barGridGroup
-      .selectAll<SVGLineElement, { key: string; tick: number; rank: number }>('line.value-grid')
-      .data(barGridData, (d) => d.key)
-      .join('line')
-      .attr('class', 'value-grid')
-      .attr('x1', (d) => x(d.tick))
-      .attr('x2', (d) => x(d.tick))
-      .attr('y1', (d) => y(d.rank) ?? margin.top)
-      .attr('y2', (d) => (y(d.rank) ?? margin.top) + y.bandwidth())
-      .attr('stroke', '#ffffff')
-      .attr('stroke-opacity', 0.55)
+  const { width } = getChartDimensions()
+  const options: ExplainedChartOptions = {
+    width,
+    topN,
+    barSize: settings.barHeightPx,
+    durationMs: explainedDurationMs,
+    keyframeSteps,
+    margin: explainedMargin,
+    color: getBarColor,
+    labelFill: settings.labelColor,
   }
+  const labelFont = `bold ${settings.nameFontSizePx}px var(--sans-serif, ui-sans-serif, system-ui, sans-serif)`
 
-  const barsGroup = svg.append('g')
-  const barGridGroup = svg.append('g').style('pointer-events', 'none')
-  const labelsGroup = svg.append('g')
+  const ctx = createExplainedContext(svgEl, keyframes, periodsOrdered, options, labelFont)
+  if (!ctx) return
 
-  renderGrid(rankedByPeriod[0]?.rows ?? [])
-
-  const periodLabel = svg
-    .append('text')
-    .attr('x', margin.left)
-    .attr('y', 28)
-    .attr('text-anchor', 'start')
-    .attr('class', 'fill-slate-600 text-3xl font-semibold')
-
-  let isFirstFrame = true
-
-  for (const frame of rankedByPeriod) {
-    const t = d3.transition().duration(frameDuration).ease(d3.easeLinear)
-
-    x.domain([0, d3.max(frame.rows, (d: RankedItem) => d.value) ?? 1])
-    axis.transition(t).call(d3.axisBottom(x).ticks(5).tickSizeOuter(0))
-    axis.select('.domain').remove()
-    axis.selectAll('.tick line').remove()
-    axis.selectAll('.tick text').attr('fill', '#334155').style('font-size', '12px')
-    renderGrid(frame.rows)
-
-    const bars = barsGroup
-      .selectAll<SVGRectElement, RankedItem>('rect')
-      .data(frame.rows, (d: RankedItem) => d.name)
-
-    bars
-      .join(
-        (enter: d3.Selection<d3.EnterElement, RankedItem, SVGGElement, unknown>) =>
-          enter
-            .append('rect')
-            .attr('x', margin.left)
-            .attr('y', (d: RankedItem) => y(d.rank) ?? margin.top)
-            .attr('height', y.bandwidth())
-            .attr('width', (d: RankedItem) => (isFirstFrame ? x(d.value) - margin.left : 0))
-            .attr('fill', (d: RankedItem) => getBarColor(d.name)),
-        (update: d3.Selection<SVGRectElement, RankedItem, SVGGElement, unknown>) => update,
-        (exit: d3.Selection<SVGRectElement, RankedItem, SVGGElement, unknown>) =>
-          exit.transition(t).attr('width', 0).remove(),
-      )
-    if (isFirstFrame) {
-      bars
-        .attr('y', (d: RankedItem) => y(d.rank) ?? margin.top)
-        .attr('width', (d: RankedItem) => x(d.value) - margin.left)
-        .attr('fill', (d: RankedItem) => getBarColor(d.name))
-    } else {
-      bars
-        .transition(t)
-        .attr('y', (d: RankedItem) => y(d.rank) ?? margin.top)
-        .attr('width', (d: RankedItem) => x(d.value) - margin.left)
-        .attr('fill', (d: RankedItem) => getBarColor(d.name))
-    }
-
-    const labels = labelsGroup
-      .selectAll<SVGGElement, RankedItem>('g.bar-label')
-      .data(frame.rows, (d: RankedItem) => d.name)
-
-    labels
-      .join(
-        (enter: d3.Selection<d3.EnterElement, RankedItem, SVGGElement, unknown>) =>
-          enter
-            .append('g')
-            .attr('class', 'bar-label')
-            .call((group) => {
-              const getNameX = (d: RankedItem) => {
-                const barEnd = x(d.value)
-                if (settings.labelLayoutMode === 'mode1') return margin.left - 6
-                if (settings.labelLayoutMode === 'mode2') return margin.left + 8
-                if (settings.labelLayoutMode === 'mode3') return barEnd - 8
-                return margin.left + 8
-              }
-              const getValueX = (d: RankedItem) => {
-                const barEnd = x(d.value)
-                if (settings.labelLayoutMode === 'mode1') return barEnd + 6
-                if (settings.labelLayoutMode === 'mode2') return barEnd - 8
-                if (settings.labelLayoutMode === 'mode3') return barEnd - 8
-                return margin.left + 8
-              }
-              const getNameY = (d: RankedItem) => {
-                const center = (y(d.rank) ?? margin.top) + y.bandwidth() / 2
-                if (settings.labelLayoutMode === 'mode3' || settings.labelLayoutMode === 'mode4') {
-                  return getStackedLabelY(center, settings.nameFontSizePx, settings.valueFontSizePx).nameY
-                }
-                return center
-              }
-              const getValueY = (d: RankedItem) => {
-                const center = (y(d.rank) ?? margin.top) + y.bandwidth() / 2
-                if (settings.labelLayoutMode === 'mode3' || settings.labelLayoutMode === 'mode4') {
-                  return getStackedLabelY(center, settings.nameFontSizePx, settings.valueFontSizePx).valueY
-                }
-                return center
-              }
-              const getNameAnchor = () => {
-                if (settings.labelLayoutMode === 'mode1') return 'end'
-                if (settings.labelLayoutMode === 'mode3') return 'end'
-                return 'start'
-              }
-              const getValueAnchor = () => {
-                if (settings.labelLayoutMode === 'mode1') return 'start'
-                if (settings.labelLayoutMode === 'mode2') return 'end'
-                if (settings.labelLayoutMode === 'mode3') return 'end'
-                return 'start'
-              }
-              const getDy = () =>
-                settings.labelLayoutMode === 'mode3' || settings.labelLayoutMode === 'mode4'
-                  ? '0em'
-                  : '0.35em'
-
-              group
-                .append('text')
-                .attr('class', 'name-label')
-                .attr('x', getNameX)
-                .attr('y', getNameY)
-                .attr('dy', getDy())
-                .attr('text-anchor', getNameAnchor())
-                .attr('fill', settings.labelColor)
-                .style('font-size', `${settings.nameFontSizePx}px`)
-                .style('font-weight', '700')
-                .text((d: RankedItem) => d.name)
-              group
-                .append('text')
-                .attr('class', 'value-label')
-                .attr('x', getValueX)
-                .attr('y', getValueY)
-                .attr('dy', getDy())
-                .attr('text-anchor', getValueAnchor())
-                .attr('fill', settings.labelColor)
-                .style('font-size', `${settings.valueFontSizePx}px`)
-                .style('font-weight', '600')
-                .text((d: RankedItem) => d.value.toFixed(0))
-            }),
-        (update: d3.Selection<SVGGElement, RankedItem, SVGGElement, unknown>) => update,
-        (exit: d3.Selection<SVGGElement, RankedItem, SVGGElement, unknown>) => exit.remove(),
-      )
-
-    const nameTexts = labels.select<SVGTextElement>('text.name-label')
-    const valueTexts = labels.select<SVGTextElement>('text.value-label')
-
-    const applyNamePosition = (selection: any) =>
-      selection
-      .attr('x', (d: RankedItem) => {
-        const barEnd = x(d.value)
-        if (settings.labelLayoutMode === 'mode1') return margin.left - 6
-        if (settings.labelLayoutMode === 'mode2') return margin.left + 8
-        if (settings.labelLayoutMode === 'mode3') return barEnd - 8
-        return margin.left + 8
-      })
-      .attr('y', (d: RankedItem) => {
-        const center = (y(d.rank) ?? margin.top) + y.bandwidth() / 2
-        if (settings.labelLayoutMode === 'mode3' || settings.labelLayoutMode === 'mode4') {
-          return getStackedLabelY(center, settings.nameFontSizePx, settings.valueFontSizePx).nameY
-        }
-        return center
-      })
-      .attr('dy', () =>
-        settings.labelLayoutMode === 'mode3' || settings.labelLayoutMode === 'mode4' ? '0em' : '0.35em',
-      )
-      .attr('text-anchor', () => {
-        if (settings.labelLayoutMode === 'mode1') return 'end'
-        if (settings.labelLayoutMode === 'mode3') return 'end'
-        return 'start'
-      })
-      .attr('fill', settings.labelColor)
-      .style('font-size', `${settings.nameFontSizePx}px`)
-      .style('font-weight', '700')
-      .text((d: RankedItem) => d.name)
-
-    const applyValuePosition = (selection: any) =>
-      selection
-      .attr('x', (d: RankedItem) => {
-        const barEnd = x(d.value)
-        if (settings.labelLayoutMode === 'mode1') return barEnd + 6
-        if (settings.labelLayoutMode === 'mode2') return barEnd - 8
-        if (settings.labelLayoutMode === 'mode3') return barEnd - 8
-        return margin.left + 8
-      })
-      .attr('y', (d: RankedItem) => {
-        const center = (y(d.rank) ?? margin.top) + y.bandwidth() / 2
-        if (settings.labelLayoutMode === 'mode3' || settings.labelLayoutMode === 'mode4') {
-          return getStackedLabelY(center, settings.nameFontSizePx, settings.valueFontSizePx).valueY
-        }
-        return center
-      })
-      .attr('dy', () =>
-        settings.labelLayoutMode === 'mode3' || settings.labelLayoutMode === 'mode4' ? '0em' : '0.35em',
-      )
-      .attr('text-anchor', () => {
-        if (settings.labelLayoutMode === 'mode1') return 'start'
-        if (settings.labelLayoutMode === 'mode2') return 'end'
-        if (settings.labelLayoutMode === 'mode3') return 'end'
-        return 'start'
-      })
-      .attr('fill', settings.labelColor)
-      .style('font-size', `${settings.valueFontSizePx}px`)
-      .style('font-weight', '600')
-
-    if (isFirstFrame) {
-      applyNamePosition(nameTexts)
-      applyValuePosition(valueTexts).text((d: RankedItem) => d.value.toFixed(0))
-    } else {
-      applyNamePosition(nameTexts.transition(t))
-      applyValuePosition(
-        valueTexts
-          .transition()
-          .duration(valueDuration)
-          .ease(d3.easeLinear),
-      ).tween('text', function (this: SVGTextElement, d: RankedItem) {
-        const node = this as SVGTextElement
-        const previous = Number(node.textContent?.replace(/[^\d.]/g, '') ?? 0)
-        const interpolator = d3.interpolateNumber(previous, d.value)
-        return (time: number) => {
-          node.textContent = interpolator(time).toFixed(0)
-        }
-      })
-    }
-
-    periodLabel.text(frame.period)
+  for (let i = 0; i < keyframes.length; i++) {
+    if (myGen !== raceGeneration) return
+    const kf = keyframes[i]!
+    const tickerLabel = periodLabelForKeyframeDate(kf[0], dv, periodsOrdered)
+    const t = d3
+      .select(svgEl)
+      .transition()
+      .duration(explainedDurationMs)
+      .ease(d3.easeLinear)
+    renderExplainedFrame(ctx, kf, t, tickerLabel)
     await t.end()
-    isFirstFrame = false
+    if (myGen !== raceGeneration) return
   }
 }
 
@@ -802,6 +462,10 @@ const onPlay = () => {
   }, 1000)
 
   startTimeout = window.setTimeout(async () => {
+    if (isMobileLayout.value) {
+      chartPanelOpen.value = true
+      await nextTick()
+    }
     isAnimating.value = true
     const settings = getCurrentSettings()
     await runBarChartRace(data, settings)
@@ -811,13 +475,17 @@ const onPlay = () => {
 }
 
 onBeforeUnmount(() => {
+  raceGeneration += 1
   clearTimers()
+  document.body.style.overflow = ''
   window.removeEventListener('resize', handleWindowResize)
+  document.removeEventListener('keydown', onChartPanelKeydown)
 })
 
 const handleWindowResize = () => {
+  syncMobileLayout()
   if (isAnimating.value || countdown.value !== null) return
-  renderPreviewChart(collectDataForPreview())
+  void nextTick(() => renderPreviewChart(collectDataForPreview()))
 }
 
 watch(
@@ -829,9 +497,26 @@ watch(
   { deep: true },
 )
 
+watch(chartPanelOpen, (open) => {
+  if (typeof document === 'undefined') return
+  if (isMobileLayout.value && open) {
+    document.body.style.overflow = 'hidden'
+  } else {
+    document.body.style.overflow = ''
+  }
+})
+
+watch([chartPanelOpen, isMobileLayout], () => {
+  if (!isMobileLayout.value) return
+  if (isAnimating.value || countdown.value !== null) return
+  void nextTick(() => renderPreviewChart(collectDataForPreview()))
+})
+
 onMounted(() => {
+  syncMobileLayout()
   renderPreviewChart(collectDataForPreview())
   window.addEventListener('resize', handleWindowResize)
+  document.addEventListener('keydown', onChartPanelKeydown)
 })
 </script>
 
@@ -861,8 +546,38 @@ onMounted(() => {
           />
         </div>
 
+        <div class="mb-4 rounded-lg border border-dashed border-slate-300 bg-slate-50/80 p-4">
+          <p class="mb-1 text-sm font-medium">Импорт CSV (по желанию)</p>
+          <p class="mb-3 text-xs leading-relaxed text-slate-600">
+            Формат как в D3 Bar Chart Race:
+            <code class="rounded bg-white px-1 py-0.5 text-[11px] text-slate-800">date, name, value</code>
+            и при необходимости
+            <code class="rounded bg-white px-1 py-0.5 text-[11px] text-slate-800">category</code>
+            (год берётся из даты). Альтернатива без даты:
+            <code class="rounded bg-white px-1 py-0.5 text-[11px] text-slate-800">name, value, period</code>
+            . Импорт заменяет названия, периоды и значения в форме.
+          </p>
+          <input
+            ref="csvFileInput"
+            type="file"
+            accept=".csv,text/csv"
+            class="sr-only"
+            @change="onCsvFile"
+          />
+          <button
+            type="button"
+            class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-800 hover:bg-slate-50"
+            @click="triggerCsvPick"
+          >
+            Выбрать CSV…
+          </button>
+        </div>
+
         <div class="mb-4">
           <label class="mb-2 block text-sm font-medium">Отображение текста на барах</label>
+          <p class="mb-2 text-xs text-slate-500">
+            График в стиле D3 «Bar Chart Race, Explained»: подписи у правого края бара; пункты ниже зарезервированы.
+          </p>
           <div class="grid gap-2 sm:grid-cols-2">
             <label
               class="flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition"
@@ -1103,11 +818,62 @@ onMounted(() => {
         </button>
       </section>
 
-      <section class="rounded-2xl bg-white p-6 shadow-sm">
+      <section class="hidden flex-col rounded-2xl bg-white p-6 shadow-sm lg:flex">
         <h2 class="text-xl font-bold">{{ chartTitle || 'Без названия' }}</h2>
         <p v-if="chartDescription" class="mt-1 text-sm text-slate-600">{{ chartDescription }}</p>
-        <svg ref="svgRef" class="mt-4 h-[520px] w-full rounded-lg border border-slate-200 bg-slate-50"></svg>
+        <svg ref="svgRef" class="mt-4 h-[520px] w-full rounded-lg border border-slate-200 bg-white"></svg>
       </section>
     </div>
+
+    <button
+      v-show="isMobileLayout && !chartPanelOpen"
+      type="button"
+      class="fixed bottom-6 right-6 z-50 flex h-14 w-14 items-center justify-center rounded-full bg-blue-600 text-white shadow-lg ring-2 ring-white/20 transition hover:bg-blue-700 active:scale-95 lg:hidden"
+      aria-label="Открыть график"
+      @click="openChartPanel"
+    >
+      <svg class="h-7 w-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+        <path d="M4 19h16M4 15l4-4 4 4 4-8 4 4" stroke-linecap="round" stroke-linejoin="round" />
+      </svg>
+    </button>
+
+    <Transition
+      enter-active-class="transition duration-300 ease-out"
+      enter-from-class="translate-x-full"
+      enter-to-class="translate-x-0"
+      leave-active-class="transition duration-250 ease-in"
+      leave-from-class="translate-x-0"
+      leave-to-class="translate-x-full"
+    >
+      <div
+        v-if="isMobileLayout && chartPanelOpen"
+        class="fixed inset-0 z-[60] flex max-h-[100dvh] flex-col bg-white lg:hidden"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="chart-panel-title"
+      >
+        <div class="flex shrink-0 items-start justify-between gap-3 border-b border-slate-200 px-4 py-3 pt-[max(0.75rem,env(safe-area-inset-top))]">
+          <div class="min-w-0 flex-1">
+            <h2 id="chart-panel-title" class="text-lg font-bold leading-tight">
+              {{ chartTitle || 'Без названия' }}
+            </h2>
+            <p v-if="chartDescription" class="mt-1 text-sm text-slate-600">{{ chartDescription }}</p>
+          </div>
+          <button
+            type="button"
+            class="shrink-0 rounded-lg px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
+            @click="closeChartPanel"
+          >
+            Закрыть
+          </button>
+        </div>
+        <div class="min-h-0 flex-1 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3">
+          <svg
+            ref="svgRefMobile"
+            class="h-full min-h-[240px] w-full rounded-lg border border-slate-200 bg-white"
+          ></svg>
+        </div>
+      </div>
+    </Transition>
   </main>
 </template>
