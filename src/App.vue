@@ -103,9 +103,16 @@ const isAnimating = ref(false)
 
 let startTimeout: number | null = null
 let countdownInterval: number | null = null
+let postRaceFloatTimer: number | null = null
 
 /** Play, Закрыть (моб. панель), FAB — скрываем на отсчёте и во время анимации */
 const showChartPlay = computed(() => countdown.value === null && !isAnimating.value)
+/** После окончания гонки ждём 1 с, затем показываем float-кнопки и FAB на мобиле */
+const mobileFloatActionsReady = ref(true)
+
+const showMobileChartFloats = computed(
+  () => showChartPlay.value && mobileFloatActionsReady.value,
+)
 const selectedPeriod = computed(() =>
   periods.value.find((period) => period.id === selectedPeriodId.value),
 )
@@ -297,6 +304,10 @@ const clearTimers = () => {
     window.clearInterval(countdownInterval)
     countdownInterval = null
   }
+  if (postRaceFloatTimer !== null) {
+    window.clearTimeout(postRaceFloatTimer)
+    postRaceFloatTimer = null
+  }
   countdown.value = null
 }
 
@@ -447,6 +458,7 @@ const onPlay = () => {
   if (!data) return
 
   clearTimers()
+  mobileFloatActionsReady.value = false
   isAnimating.value = false
   countdown.value = 5
 
@@ -469,8 +481,18 @@ const onPlay = () => {
     }
     isAnimating.value = true
     const settings = getCurrentSettings()
-    await runBarChartRace(data, settings)
-    isAnimating.value = false
+    try {
+      await runBarChartRace(data, settings)
+    } finally {
+      isAnimating.value = false
+      if (postRaceFloatTimer !== null) {
+        window.clearTimeout(postRaceFloatTimer)
+      }
+      postRaceFloatTimer = window.setTimeout(() => {
+        mobileFloatActionsReady.value = true
+        postRaceFloatTimer = null
+      }, 1000)
+    }
     startTimeout = null
   }, 5000)
 }
@@ -561,7 +583,7 @@ onMounted(() => {
           <input
             ref="csvFileInput"
             type="file"
-            accept=".csv,text/csv"
+            accept=".csv,.txt,text/csv,text/plain,text/comma-separated-values,application/vnd.ms-excel,application/octet-stream"
             class="sr-only"
             @change="onCsvFile"
           />
@@ -881,7 +903,7 @@ onMounted(() => {
     </div>
 
     <button
-      v-show="isMobileLayout && !chartPanelOpen && showChartPlay"
+      v-show="isMobileLayout && !chartPanelOpen && showMobileChartFloats"
       type="button"
       class="fixed bottom-6 right-6 z-50 flex h-14 w-14 items-center justify-center rounded-full bg-blue-600 text-white shadow-lg ring-2 ring-white/20 transition hover:bg-blue-700 active:scale-95 lg:hidden"
       aria-label="Открыть график"
@@ -945,7 +967,7 @@ onMounted(() => {
           ></svg>
 
           <div
-            v-if="showChartPlay"
+            v-if="showMobileChartFloats"
             class="pointer-events-none absolute inset-x-0 bottom-0 top-0 z-[70]"
             aria-hidden="true"
           >
