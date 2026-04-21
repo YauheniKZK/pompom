@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import WebApp from '@twa-dev/sdk'
 import * as d3 from 'd3'
 import {
   allNames,
@@ -113,6 +114,48 @@ const mobileFloatActionsReady = ref(true)
 const showMobileChartFloats = computed(
   () => showChartPlay.value && mobileFloatActionsReady.value,
 )
+
+function isTelegramEnvironment(): boolean {
+  const data = WebApp.initData
+  if (typeof data === 'string' && data.length > 0) return true
+  if (WebApp.platform && WebApp.platform !== 'unknown') return true
+  const unsafe = WebApp.initDataUnsafe
+  if (unsafe && typeof unsafe === 'object') {
+    if ('user' in unsafe || 'auth_date' in unsafe || 'hash' in unsafe) return true
+  }
+  return false
+}
+
+/** Кнопка «Назад» в шапке Telegram (API с 6.1); иначе оставляем плавающее «Закрыть» */
+function canUseTelegramBackButton(): boolean {
+  try {
+    return isTelegramEnvironment() && WebApp.isVersionAtLeast('6.1')
+  } catch {
+    return false
+  }
+}
+
+const showCustomPanelCloseButton = computed(() => !canUseTelegramBackButton())
+
+function onTelegramBackClosePanel() {
+  closeChartPanel()
+}
+
+function syncTelegramBackButton() {
+  try {
+    WebApp.BackButton.offClick(onTelegramBackClosePanel)
+    const show =
+      canUseTelegramBackButton() && isMobileLayout.value && chartPanelOpen.value
+    if (show) {
+      WebApp.BackButton.show()
+      WebApp.BackButton.onClick(onTelegramBackClosePanel)
+    } else {
+      WebApp.BackButton.hide()
+    }
+  } catch {
+    /* вне Telegram или старый клиент */
+  }
+}
 const selectedPeriod = computed(() =>
   periods.value.find((period) => period.id === selectedPeriodId.value),
 )
@@ -503,6 +546,12 @@ onBeforeUnmount(() => {
   document.body.style.overflow = ''
   window.removeEventListener('resize', handleWindowResize)
   document.removeEventListener('keydown', onChartPanelKeydown)
+  try {
+    WebApp.BackButton.offClick(onTelegramBackClosePanel)
+    WebApp.BackButton.hide()
+  } catch {
+    /* no-op */
+  }
 })
 
 const handleWindowResize = () => {
@@ -535,11 +584,16 @@ watch([chartPanelOpen, isMobileLayout], () => {
   void nextTick(() => renderPreviewChart(collectDataForPreview()))
 })
 
+watch([chartPanelOpen, isMobileLayout], () => {
+  syncTelegramBackButton()
+})
+
 onMounted(() => {
   syncMobileLayout()
   renderPreviewChart(collectDataForPreview())
   window.addEventListener('resize', handleWindowResize)
   document.addEventListener('keydown', onChartPanelKeydown)
+  syncTelegramBackButton()
 })
 </script>
 
@@ -989,6 +1043,7 @@ onMounted(() => {
               class="pointer-events-auto absolute bottom-[max(0.5rem,env(safe-area-inset-bottom))] right-2 flex flex-col gap-2 sm:bottom-[max(0.75rem,env(safe-area-inset-bottom))] sm:right-3 sm:gap-3"
             >
               <button
+                v-if="showCustomPanelCloseButton"
                 type="button"
                 class="flex h-12 w-12 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700 shadow-lg ring-1 ring-black/5 transition hover:bg-slate-50 active:scale-95 sm:h-14 sm:w-14"
                 aria-label="Закрыть"
