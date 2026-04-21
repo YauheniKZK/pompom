@@ -15,7 +15,19 @@ body {
   font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
 }
 
-/* iOS: при font-size < 16px на инпутах Safari увеличивает страницу при фокусе */
+/*
+ * Видимый карет и текст (в т.ч. в тёмной теме TG без контраста от родителя).
+ * iOS: при font-size < 16px Safari увеличивает страницу при фокусе — на мобиле 16px.
+ */
+input:not([type="color"]):not([type="checkbox"]):not([type="radio"]):not([type="range"]):not(
+    [type="file"]
+  ):not([type="hidden"]):not([type="button"]):not([type="submit"]):not([type="reset"]),
+textarea,
+select {
+  caret-color: #0f172a;
+  color: #0f172a;
+}
+
 @media screen and (max-width: 1023px) {
   input:not([type="color"]):not([type="checkbox"]):not([type="radio"]):not([type="range"]):not(
       [type="file"]

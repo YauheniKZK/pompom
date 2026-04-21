@@ -2,6 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import WebApp from '@twa-dev/sdk'
 import * as d3 from 'd3'
+import { isTelegramMiniAppEnvironment } from './lib/telegramEnv'
 import {
   allNames,
   buildKeyframes,
@@ -115,27 +116,16 @@ const showMobileChartFloats = computed(
   () => showChartPlay.value && mobileFloatActionsReady.value,
 )
 
-function isTelegramEnvironment(): boolean {
-  const data = WebApp.initData
-  if (typeof data === 'string' && data.length > 0) return true
-  if (WebApp.platform && WebApp.platform !== 'unknown') return true
-  const unsafe = WebApp.initDataUnsafe
-  if (unsafe && typeof unsafe === 'object') {
-    if ('user' in unsafe || 'auth_date' in unsafe || 'hash' in unsafe) return true
-  }
-  return false
-}
-
-/** Кнопка «Назад» в шапке Telegram (API с 6.1); иначе оставляем плавающее «Закрыть» */
-function canUseTelegramBackButton(): boolean {
+/** Родная «Назад» в шапке Mini App (web_app_setup_back_button с 6.1) */
+function canUseTelegramNativeBackButton(): boolean {
   try {
-    return isTelegramEnvironment() && WebApp.isVersionAtLeast('6.1')
+    return isTelegramMiniAppEnvironment() && WebApp.isVersionAtLeast('6.1')
   } catch {
     return false
   }
 }
 
-const showCustomPanelCloseButton = computed(() => !canUseTelegramBackButton())
+const showCustomPanelCloseButton = computed(() => !canUseTelegramNativeBackButton())
 
 function onTelegramBackClosePanel() {
   closeChartPanel()
@@ -145,8 +135,15 @@ function syncTelegramBackButton() {
   try {
     WebApp.BackButton.offClick(onTelegramBackClosePanel)
     const show =
-      canUseTelegramBackButton() && isMobileLayout.value && chartPanelOpen.value
+      canUseTelegramNativeBackButton() &&
+      isMobileLayout.value &&
+      chartPanelOpen.value
     if (show) {
+      try {
+        WebApp.ready()
+      } catch {
+        /* no-op */
+      }
       WebApp.BackButton.show()
       WebApp.BackButton.onClick(onTelegramBackClosePanel)
     } else {
@@ -155,6 +152,18 @@ function syncTelegramBackButton() {
   } catch {
     /* вне Telegram или старый клиент */
   }
+}
+
+/** После открытия панели шапка Mini App иногда дорисовывается со сдвигом — повторяем show */
+function scheduleSyncTelegramBackButton() {
+  syncTelegramBackButton()
+  void nextTick(() => {
+    requestAnimationFrame(() => {
+      syncTelegramBackButton()
+      setTimeout(syncTelegramBackButton, 48)
+      setTimeout(syncTelegramBackButton, 160)
+    })
+  })
 }
 const selectedPeriod = computed(() =>
   periods.value.find((period) => period.id === selectedPeriodId.value),
@@ -585,7 +594,7 @@ watch([chartPanelOpen, isMobileLayout], () => {
 })
 
 watch([chartPanelOpen, isMobileLayout], () => {
-  syncTelegramBackButton()
+  scheduleSyncTelegramBackButton()
 })
 
 onMounted(() => {
@@ -593,7 +602,7 @@ onMounted(() => {
   renderPreviewChart(collectDataForPreview())
   window.addEventListener('resize', handleWindowResize)
   document.addEventListener('keydown', onChartPanelKeydown)
-  syncTelegramBackButton()
+  scheduleSyncTelegramBackButton()
 })
 </script>
 
@@ -887,8 +896,11 @@ onMounted(() => {
               <input
                 v-model.number="valueItem.value"
                 type="number"
+                inputmode="decimal"
+                enterkeyhint="done"
                 min="0"
-                class="col-span-4 rounded-lg border border-slate-300 px-2 py-1.5 text-xs tabular-nums outline-none focus:border-blue-500 sm:col-span-3 sm:px-3 sm:py-2 sm:text-sm"
+                step="any"
+                class="col-span-4 rounded-lg border border-slate-300 px-2 py-1.5 text-xs tabular-nums text-slate-900 outline-none focus:border-blue-500 sm:col-span-3 sm:px-3 sm:py-2 sm:text-sm"
                 placeholder="Значение"
               />
               <input

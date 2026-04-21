@@ -1,58 +1,12 @@
 <script setup lang="ts">
 import { onMounted, ref, watch } from 'vue'
 import WebApp from '@twa-dev/sdk'
+import { isTelegramMiniAppEnvironment } from './lib/telegramEnv'
 import ChartApp from './ChartApp.vue'
-
-type WindowWithTg = Window & { TelegramWebviewProxy?: unknown }
-
-/**
- * Параметры Mini App в URL (после #). Если редирект «съел» hash, SDK остаётся пустым —
- * проверяем строку напрямую.
- */
-function hasTelegramWebAppInLocation(): boolean {
-  if (typeof window === 'undefined') return false
-  const { hash, search } = window.location
-  const s = `${hash}${search}`
-  if (!s) return false
-  return /tgWebApp(?:Data|Platform|Version|BotId|ThemeParams|StartParam|Fullscreen)/i.test(s)
-}
-
-/** Нативный клиент Telegram (iOS/Android/Desktop) встраивает мост до WebView */
-function hasNativeTelegramBridge(): boolean {
-  if (typeof window === 'undefined') return false
-  return typeof (window as WindowWithTg).TelegramWebviewProxy !== 'undefined'
-}
-
-/** Часть WebView подставляет Telegram в User-Agent */
-function isLikelyTelegramUserAgent(): boolean {
-  if (typeof navigator === 'undefined') return false
-  return /Telegram/i.test(navigator.userAgent)
-}
-
-/**
- * Данные из @twa-dev/sdk: initData / platform / initDataUnsafe
- */
-function isSdkTelegramWebApp(): boolean {
-  const data = WebApp.initData
-  if (typeof data === 'string' && data.length > 0) return true
-
-  if (WebApp.platform && WebApp.platform !== 'unknown') return true
-
-  const unsafe = WebApp.initDataUnsafe
-  if (unsafe && typeof unsafe === 'object') {
-    if ('user' in unsafe || 'auth_date' in unsafe || 'hash' in unsafe) return true
-  }
-
-  return false
-}
 
 function detectTelegramMiniApp(): boolean {
   if (import.meta.env.DEV) return true
-  if (isSdkTelegramWebApp()) return true
-  if (hasTelegramWebAppInLocation()) return true
-  if (hasNativeTelegramBridge()) return true
-  if (isLikelyTelegramUserAgent()) return true
-  return false
+  return isTelegramMiniAppEnvironment()
 }
 
 const showChartApp = ref(detectTelegramMiniApp())
