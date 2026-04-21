@@ -104,7 +104,8 @@ const isAnimating = ref(false)
 let startTimeout: number | null = null
 let countdownInterval: number | null = null
 
-const canPlay = computed(() => !isAnimating.value && countdown.value === null)
+/** Play, Закрыть (моб. панель), FAB — скрываем на отсчёте и во время анимации */
+const showChartPlay = computed(() => countdown.value === null && !isAnimating.value)
 const selectedPeriod = computed(() =>
   periods.value.find((period) => period.id === selectedPeriodId.value),
 )
@@ -808,25 +809,79 @@ onMounted(() => {
           {{ errorMessage }}
         </p>
 
+        <div
+          v-if="countdown !== null"
+          class="mb-4 flex items-center justify-center gap-2 rounded-xl border border-blue-200 bg-gradient-to-br from-blue-50 to-indigo-50 px-4 py-4 text-slate-700 shadow-inner"
+        >
+          <span class="text-sm font-medium">Старт через</span>
+          <span class="min-w-[2.5ch] text-center text-3xl font-bold tabular-nums text-blue-600">{{ countdown }}</span>
+          <span class="text-sm">сек</span>
+        </div>
         <button
+          v-else-if="!isAnimating"
           type="button"
-          :disabled="!canPlay"
-          class="rounded-lg bg-blue-600 px-5 py-2 font-medium text-white transition enabled:hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-400"
+          class="rounded-lg bg-blue-600 px-5 py-2 font-medium text-white transition hover:bg-blue-700"
           @click="onPlay"
         >
-          {{ countdown !== null ? `Старт через ${countdown} сек` : isAnimating ? 'Анимация...' : 'Play' }}
+          Play
+        </button>
+        <button
+          v-else
+          type="button"
+          disabled
+          class="cursor-not-allowed rounded-lg bg-slate-300 px-5 py-2 font-medium text-slate-600"
+        >
+          Анимация…
         </button>
       </section>
 
       <section class="hidden flex-col rounded-2xl bg-white p-6 shadow-sm lg:flex">
-        <h2 class="text-xl font-bold">{{ chartTitle || 'Без названия' }}</h2>
-        <p v-if="chartDescription" class="mt-1 text-sm text-slate-600">{{ chartDescription }}</p>
-        <svg ref="svgRef" class="mt-4 h-[520px] w-full rounded-lg border border-slate-200 bg-white"></svg>
+        <div class="flex flex-wrap items-start justify-between gap-3">
+          <div class="min-w-0 flex-1">
+            <h2 class="text-xl font-bold">{{ chartTitle || 'Без названия' }}</h2>
+            <p v-if="chartDescription" class="mt-1 text-sm text-slate-600">{{ chartDescription }}</p>
+          </div>
+          <button
+            v-if="showChartPlay"
+            type="button"
+            class="shrink-0 rounded-full bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-md transition hover:bg-blue-700 active:scale-[0.98]"
+            @click="onPlay"
+          >
+            Play
+          </button>
+        </div>
+        <div class="relative mt-4 min-h-[520px]">
+          <Transition
+            enter-active-class="transition duration-300 ease-out"
+            enter-from-class="opacity-0 scale-95"
+            enter-to-class="opacity-100 scale-100"
+            leave-active-class="transition duration-200 ease-in"
+            leave-from-class="opacity-100"
+            leave-to-class="opacity-0"
+          >
+            <div
+              v-if="countdown !== null"
+              class="pointer-events-none absolute inset-0 z-10 flex flex-col items-center justify-center rounded-lg border border-blue-100 bg-gradient-to-b from-white/95 to-blue-50/95 px-4 shadow-inner backdrop-blur-[2px]"
+              aria-live="polite"
+            >
+              <span class="text-sm font-medium tracking-wide text-slate-500">Старт через</span>
+              <span
+                class="mt-1 animate-pulse text-7xl font-bold tabular-nums leading-none text-blue-600 drop-shadow-sm"
+                >{{ countdown }}</span
+              >
+              <span class="mt-2 text-xs font-medium uppercase tracking-widest text-slate-400">секунд</span>
+            </div>
+          </Transition>
+          <svg
+            ref="svgRef"
+            class="h-[520px] w-full rounded-lg border border-slate-200 bg-white"
+          ></svg>
+        </div>
       </section>
     </div>
 
     <button
-      v-show="isMobileLayout && !chartPanelOpen"
+      v-show="isMobileLayout && !chartPanelOpen && showChartPlay"
       type="button"
       class="fixed bottom-6 right-6 z-50 flex h-14 w-14 items-center justify-center rounded-full bg-blue-600 text-white shadow-lg ring-2 ring-white/20 transition hover:bg-blue-700 active:scale-95 lg:hidden"
       aria-label="Открыть график"
@@ -852,26 +907,73 @@ onMounted(() => {
         aria-modal="true"
         aria-labelledby="chart-panel-title"
       >
-        <div class="flex shrink-0 items-start justify-between gap-3 border-b border-slate-200 px-4 py-3 pt-[max(0.75rem,env(safe-area-inset-top))]">
-          <div class="min-w-0 flex-1">
-            <h2 id="chart-panel-title" class="text-lg font-bold leading-tight">
-              {{ chartTitle || 'Без названия' }}
-            </h2>
-            <p v-if="chartDescription" class="mt-1 text-sm text-slate-600">{{ chartDescription }}</p>
-          </div>
-          <button
-            type="button"
-            class="shrink-0 rounded-lg px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
-            @click="closeChartPanel"
-          >
-            Закрыть
-          </button>
+        <div
+          class="shrink-0 border-b border-slate-200 px-4 py-3 pt-[max(0.75rem,env(safe-area-inset-top))]"
+        >
+          <h2 id="chart-panel-title" class="text-lg font-bold leading-tight">
+            {{ chartTitle || 'Без названия' }}
+          </h2>
+          <p v-if="chartDescription" class="mt-1 text-sm text-slate-600">{{ chartDescription }}</p>
         </div>
-        <div class="min-h-0 flex-1 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3">
+        <div
+          class="relative min-h-0 flex-1 px-4 pb-[max(5.5rem,env(safe-area-inset-bottom))] pt-3"
+        >
+          <Transition
+            enter-active-class="transition duration-300 ease-out"
+            enter-from-class="opacity-0 scale-95"
+            enter-to-class="opacity-100 scale-100"
+            leave-active-class="transition duration-200 ease-in"
+            leave-from-class="opacity-100"
+            leave-to-class="opacity-0"
+          >
+            <div
+              v-if="countdown !== null"
+              class="pointer-events-none absolute inset-x-4 inset-y-3 z-10 flex flex-col items-center justify-center rounded-lg border border-blue-100 bg-gradient-to-b from-white/95 to-blue-50/95 px-4 shadow-inner backdrop-blur-[2px]"
+              aria-live="polite"
+            >
+              <span class="text-sm font-medium tracking-wide text-slate-500">Старт через</span>
+              <span
+                class="mt-1 animate-pulse text-6xl font-bold tabular-nums leading-none text-blue-600 drop-shadow-sm sm:text-7xl"
+                >{{ countdown }}</span
+              >
+              <span class="mt-2 text-xs font-medium uppercase tracking-widest text-slate-400">секунд</span>
+            </div>
+          </Transition>
           <svg
             ref="svgRefMobile"
             class="h-full min-h-[240px] w-full rounded-lg border border-slate-200 bg-white"
           ></svg>
+
+          <div
+            v-if="showChartPlay"
+            class="pointer-events-none absolute inset-x-0 bottom-0 top-0 z-[70]"
+            aria-hidden="true"
+          >
+            <div
+              class="pointer-events-auto absolute bottom-[max(0.75rem,env(safe-area-inset-bottom))] right-3 flex flex-col gap-3"
+            >
+              <button
+                type="button"
+                class="flex h-14 w-14 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700 shadow-lg ring-1 ring-black/5 transition hover:bg-slate-50 active:scale-95"
+                aria-label="Закрыть"
+                @click="closeChartPanel"
+              >
+                <svg class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                  <path d="M18 6L6 18M6 6l12 12" />
+                </svg>
+              </button>
+              <button
+                type="button"
+                class="flex h-14 w-14 items-center justify-center rounded-full bg-blue-600 text-white shadow-lg ring-2 ring-blue-500/30 transition hover:bg-blue-700 active:scale-95"
+                aria-label="Запустить анимацию"
+                @click="onPlay"
+              >
+                <svg class="ml-0.5 h-7 w-7" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                  <path d="M8 5.14v14l11-7-11-6.86z" />
+                </svg>
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     </Transition>
