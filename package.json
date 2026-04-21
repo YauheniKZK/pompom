@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.2.3",
+    "@twa-dev/sdk": "^8.0.2",
     "d3": "^7.9.0",
     "tailwindcss": "^4.2.3",
     "vue": "^3.5.32"
