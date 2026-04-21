@@ -3,11 +3,25 @@ import { computed, onMounted } from 'vue'
 import WebApp from '@twa-dev/sdk'
 import ChartApp from './ChartApp.vue'
 
-/** Mini App из Telegram передаёт непустой initData; в обычном браузере строка пустая */
-const isTelegramApp = computed(() => {
+/**
+ * Определение Mini App: не только initData (в части клиентов/сценариев строка бывает пустой),
+ * но и platform из tgWebAppPlatform, и распарсенные поля initDataUnsafe.
+ */
+function isRunningInTelegramWebApp(): boolean {
   const data = WebApp.initData
-  return typeof data === 'string' && data.length > 0
-})
+  if (typeof data === 'string' && data.length > 0) return true
+
+  if (WebApp.platform && WebApp.platform !== 'unknown') return true
+
+  const unsafe = WebApp.initDataUnsafe
+  if (unsafe && typeof unsafe === 'object') {
+    if ('user' in unsafe || 'auth_date' in unsafe || 'hash' in unsafe) return true
+  }
+
+  return false
+}
+
+const isTelegramApp = computed(() => isRunningInTelegramWebApp())
 
 /** В `vite dev` показываем приложение в браузере без Telegram */
 const showChartApp = computed(
