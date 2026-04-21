@@ -1,13 +1,38 @@
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
+import { onMounted, ref, watch } from 'vue'
 import WebApp from '@twa-dev/sdk'
 import ChartApp from './ChartApp.vue'
 
+type WindowWithTg = Window & { TelegramWebviewProxy?: unknown }
+
 /**
- * Определение Mini App: не только initData (в части клиентов/сценариев строка бывает пустой),
- * но и platform из tgWebAppPlatform, и распарсенные поля initDataUnsafe.
+ * Параметры Mini App в URL (после #). Если редирект «съел» hash, SDK остаётся пустым —
+ * проверяем строку напрямую.
  */
-function isRunningInTelegramWebApp(): boolean {
+function hasTelegramWebAppInLocation(): boolean {
+  if (typeof window === 'undefined') return false
+  const { hash, search } = window.location
+  const s = `${hash}${search}`
+  if (!s) return false
+  return /tgWebApp(?:Data|Platform|Version|BotId|ThemeParams|StartParam|Fullscreen)/i.test(s)
+}
+
+/** Нативный клиент Telegram (iOS/Android/Desktop) встраивает мост до WebView */
+function hasNativeTelegramBridge(): boolean {
+  if (typeof window === 'undefined') return false
+  return typeof (window as WindowWithTg).TelegramWebviewProxy !== 'undefined'
+}
+
+/** Часть WebView подставляет Telegram в User-Agent */
+function isLikelyTelegramUserAgent(): boolean {
+  if (typeof navigator === 'undefined') return false
+  return /Telegram/i.test(navigator.userAgent)
+}
+
+/**
+ * Данные из @twa-dev/sdk: initData / platform / initDataUnsafe
+ */
+function isSdkTelegramWebApp(): boolean {
   const data = WebApp.initData
   if (typeof data === 'string' && data.length > 0) return true
 
@@ -21,17 +46,49 @@ function isRunningInTelegramWebApp(): boolean {
   return false
 }
 
-const isTelegramApp = computed(() => isRunningInTelegramWebApp())
+function detectTelegramMiniApp(): boolean {
+  if (import.meta.env.DEV) return true
+  if (isSdkTelegramWebApp()) return true
+  if (hasTelegramWebAppInLocation()) return true
+  if (hasNativeTelegramBridge()) return true
+  if (isLikelyTelegramUserAgent()) return true
+  return false
+}
 
-/** В `vite dev` показываем приложение в браузере без Telegram */
-const showChartApp = computed(
-  () => import.meta.env.DEV || isTelegramApp.value,
-)
+const showChartApp = ref(detectTelegramMiniApp())
+
+function notifyTelegramReady() {
+  if (import.meta.env.DEV) return
+  if (!showChartApp.value) return
+  try {
+    WebApp.ready()
+  } catch {
+    /* no-op */
+  }
+}
+
+watch(showChartApp, (ok) => {
+  if (ok) notifyTelegramReady()
+})
 
 onMounted(() => {
-  if (isTelegramApp.value) {
-    WebApp.ready()
+  const recheck = () => {
+    if (import.meta.env.DEV) {
+      showChartApp.value = true
+      return
+    }
+    if (!showChartApp.value) {
+      showChartApp.value = detectTelegramMiniApp()
+    }
   }
+
+  recheck()
+  queueMicrotask(recheck)
+  setTimeout(recheck, 0)
+  setTimeout(recheck, 50)
+  setTimeout(recheck, 200)
+
+  notifyTelegramReady()
 })
 </script>
 
