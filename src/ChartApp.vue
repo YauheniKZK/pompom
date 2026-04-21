@@ -134,8 +134,9 @@ function onTelegramBackClosePanel() {
 function syncTelegramBackButton() {
   try {
     WebApp.BackButton.offClick(onTelegramBackClosePanel)
+    /** В Mini App всегда пробуем show (SDK внутри проверит версию ≥ 6.1); не требовать 6.1 здесь — иначе при сбое tgWebAppVersion кнопка не появлялась */
     const show =
-      canUseTelegramNativeBackButton() &&
+      isTelegramMiniAppEnvironment() &&
       isMobileLayout.value &&
       chartPanelOpen.value
     if (show) {
@@ -162,6 +163,7 @@ function scheduleSyncTelegramBackButton() {
       syncTelegramBackButton()
       setTimeout(syncTelegramBackButton, 48)
       setTimeout(syncTelegramBackButton, 160)
+      setTimeout(syncTelegramBackButton, 400)
     })
   })
 }
@@ -219,6 +221,7 @@ const getChartDimensions = () => {
 
 const openChartPanel = () => {
   chartPanelOpen.value = true
+  scheduleSyncTelegramBackButton()
 }
 
 const closeChartPanel = () => {
@@ -530,6 +533,7 @@ const onPlay = () => {
     if (isMobileLayout.value) {
       chartPanelOpen.value = true
       await nextTick()
+      scheduleSyncTelegramBackButton()
     }
     isAnimating.value = true
     const settings = getCurrentSettings()
@@ -608,13 +612,13 @@ onMounted(() => {
 
 <template>
   <main
-    class="min-h-screen bg-slate-100 pb-[max(5rem,env(safe-area-inset-bottom))] pl-[max(0.75rem,env(safe-area-inset-left))] pr-[max(0.75rem,env(safe-area-inset-right))] pt-[max(0.75rem,env(safe-area-inset-top))] text-slate-900 sm:pb-6 sm:pl-4 sm:pr-4 sm:pt-4 lg:px-6 lg:pt-6"
+    class="box-border min-h-screen min-w-0 max-w-[100vw] overflow-x-hidden bg-slate-100 pb-[max(5rem,env(safe-area-inset-bottom))] pl-[max(0.75rem,env(safe-area-inset-left))] pr-[max(0.75rem,env(safe-area-inset-right))] pt-[max(0.75rem,env(safe-area-inset-top))] text-slate-900 sm:pb-6 sm:pl-4 sm:pr-4 sm:pt-4 lg:px-6 lg:pt-6"
   >
-    <div class="mx-auto grid w-full max-w-7xl gap-3 sm:gap-4 lg:grid-cols-2 lg:gap-6">
+    <div class="mx-auto grid w-full min-w-0 max-w-7xl gap-3 sm:gap-4 lg:grid-cols-2 lg:gap-6">
       <section
-        class="rounded-xl border border-slate-200/80 bg-white p-3 shadow-sm sm:p-4 lg:rounded-2xl lg:p-6"
+        class="min-w-0 max-w-full overflow-hidden rounded-xl border border-slate-200/80 bg-white p-3 shadow-sm sm:p-4 lg:rounded-2xl lg:p-6"
       >
-        <h1 class="mb-3 text-xl font-bold tracking-tight sm:mb-4 sm:text-2xl">
+        <h1 class="mb-3 break-words text-xl font-bold tracking-tight sm:mb-4 sm:text-2xl">
           Настройки Bar Chart Race
         </h1>
 
@@ -641,16 +645,18 @@ onMounted(() => {
         </div>
 
         <div
-          class="mb-3 rounded-lg border border-dashed border-slate-300 bg-slate-50/80 p-3 sm:mb-4 sm:p-4"
+          class="mb-3 min-w-0 rounded-lg border border-dashed border-slate-300 bg-slate-50/80 p-3 sm:mb-4 sm:p-4"
         >
           <p class="mb-1 text-xs font-medium sm:text-sm">Импорт CSV (по желанию)</p>
-          <p class="mb-2 text-[11px] leading-snug text-slate-600 sm:mb-3 sm:text-xs sm:leading-relaxed">
+          <p
+            class="mb-2 break-words text-[11px] leading-snug text-slate-600 sm:mb-3 sm:text-xs sm:leading-relaxed"
+          >
             Формат как в D3 Bar Chart Race:
-            <code class="rounded bg-white px-1 py-0.5 text-[11px] text-slate-800">date, name, value</code>
+            <code class="break-all rounded bg-white px-1 py-0.5 text-[11px] text-slate-800">date, name, value</code>
             и при необходимости
-            <code class="rounded bg-white px-1 py-0.5 text-[11px] text-slate-800">category</code>
+            <code class="break-all rounded bg-white px-1 py-0.5 text-[11px] text-slate-800">category</code>
             (год берётся из даты). Альтернатива без даты:
-            <code class="rounded bg-white px-1 py-0.5 text-[11px] text-slate-800">name, value, period</code>
+            <code class="break-all rounded bg-white px-1 py-0.5 text-[11px] text-slate-800">name, value, period</code>
             . Импорт заменяет названия, периоды и значения в форме.
           </p>
           <input
@@ -676,9 +682,9 @@ onMounted(() => {
           <p class="mb-2 text-[11px] text-slate-500 sm:text-xs">
             График в стиле D3 «Bar Chart Race, Explained»: подписи у правого края бара; пункты ниже зарезервированы.
           </p>
-          <div class="grid gap-1.5 sm:grid-cols-2 sm:gap-2">
+          <div class="grid min-w-0 gap-1.5 sm:grid-cols-2 sm:gap-2">
             <label
-              class="flex cursor-pointer items-start gap-2 rounded-lg border p-2.5 transition sm:gap-3 sm:p-3"
+              class="flex min-w-0 cursor-pointer items-start gap-2 rounded-lg border p-2.5 transition sm:gap-3 sm:p-3"
               :class="
                 labelLayoutMode === 'mode1'
                   ? 'border-blue-500 bg-blue-50'
@@ -686,11 +692,12 @@ onMounted(() => {
               "
             >
               <input v-model="labelLayoutMode" type="radio" value="mode1" class="mt-0.5 h-3.5 w-3.5 sm:mt-1 sm:h-4 sm:w-4" />
-              <span class="text-xs leading-snug text-slate-700 sm:text-sm">1. Как сейчас</span>
+              <span class="min-w-0 flex-1 break-words text-xs leading-snug text-slate-700 sm:text-sm"
+                >1. Как сейчас</span>
             </label>
 
             <label
-              class="flex cursor-pointer items-start gap-2 rounded-lg border p-2.5 transition sm:gap-3 sm:p-3"
+              class="flex min-w-0 cursor-pointer items-start gap-2 rounded-lg border p-2.5 transition sm:gap-3 sm:p-3"
               :class="
                 labelLayoutMode === 'mode2'
                   ? 'border-blue-500 bg-blue-50'
@@ -698,11 +705,12 @@ onMounted(() => {
               "
             >
               <input v-model="labelLayoutMode" type="radio" value="mode2" class="mt-0.5 h-3.5 w-3.5 sm:mt-1 sm:h-4 sm:w-4" />
-              <span class="text-xs leading-snug text-slate-700 sm:text-sm">2. Название и значение внутри бара</span>
+              <span class="min-w-0 flex-1 break-words text-xs leading-snug text-slate-700 sm:text-sm"
+                >2. Название и значение внутри бара</span>
             </label>
 
             <label
-              class="flex cursor-pointer items-start gap-2 rounded-lg border p-2.5 transition sm:gap-3 sm:p-3"
+              class="flex min-w-0 cursor-pointer items-start gap-2 rounded-lg border p-2.5 transition sm:gap-3 sm:p-3"
               :class="
                 labelLayoutMode === 'mode3'
                   ? 'border-blue-500 bg-blue-50'
@@ -710,13 +718,13 @@ onMounted(() => {
               "
             >
               <input v-model="labelLayoutMode" type="radio" value="mode3" class="mt-0.5 h-3.5 w-3.5 sm:mt-1 sm:h-4 sm:w-4" />
-              <span class="text-xs leading-snug text-slate-700 sm:text-sm">
+              <span class="min-w-0 flex-1 break-words text-xs leading-snug text-slate-700 sm:text-sm">
                 3. Название и значение друг под другом в правом конце бара
               </span>
             </label>
 
             <label
-              class="flex cursor-pointer items-start gap-2 rounded-lg border p-2.5 transition sm:gap-3 sm:p-3"
+              class="flex min-w-0 cursor-pointer items-start gap-2 rounded-lg border p-2.5 transition sm:gap-3 sm:p-3"
               :class="
                 labelLayoutMode === 'mode4'
                   ? 'border-blue-500 bg-blue-50'
@@ -724,7 +732,7 @@ onMounted(() => {
               "
             >
               <input v-model="labelLayoutMode" type="radio" value="mode4" class="mt-0.5 h-3.5 w-3.5 sm:mt-1 sm:h-4 sm:w-4" />
-              <span class="text-xs leading-snug text-slate-700 sm:text-sm">
+              <span class="min-w-0 flex-1 break-words text-xs leading-snug text-slate-700 sm:text-sm">
                 4. Как 3, только в левом конце бара
               </span>
             </label>
@@ -746,9 +754,9 @@ onMounted(() => {
         </div>
 
         <div
-          class="mb-3 grid gap-2 rounded-lg border border-slate-200 p-3 sm:mb-4 sm:grid-cols-2 sm:gap-3 sm:p-4"
+          class="mb-3 grid min-w-0 gap-2 rounded-lg border border-slate-200 p-3 sm:mb-4 sm:grid-cols-2 sm:gap-3 sm:p-4"
         >
-          <div>
+          <div class="min-w-0">
             <label class="mb-1 block text-xs font-medium text-slate-700 sm:text-sm"
               >Размер шрифта названия: {{ nameFontSizePx }} px</label
             >
@@ -761,7 +769,7 @@ onMounted(() => {
               class="h-2 w-full cursor-pointer appearance-none rounded-lg bg-slate-200"
             />
           </div>
-          <div>
+          <div class="min-w-0">
             <label class="mb-1 block text-xs font-medium text-slate-700 sm:text-sm"
               >Размер шрифта значения: {{ valueFontSizePx }} px</label
             >
@@ -786,7 +794,7 @@ onMounted(() => {
 
         <div class="mb-3 rounded-lg border border-slate-200 p-3 sm:mb-4 sm:p-4">
           <p class="mb-2 text-xs font-semibold text-slate-800 sm:text-sm">1) Названия элементов</p>
-          <div class="mb-2 flex gap-1.5 sm:mb-3 sm:gap-2">
+          <div class="mb-2 flex min-w-0 gap-1.5 sm:mb-3 sm:gap-2">
             <input
               v-model="newNameText"
               type="text"
@@ -822,11 +830,14 @@ onMounted(() => {
 
         <div class="mb-3 rounded-lg border border-slate-200 p-3 sm:mb-4 sm:p-4">
           <p class="mb-2 text-xs font-semibold text-slate-800 sm:text-sm">2) Даты / периоды</p>
-          <div class="mb-2 flex gap-1.5 sm:mb-3 sm:gap-2">
+          <div class="mb-2 flex min-w-0 gap-1.5 sm:mb-3 sm:gap-2">
             <input
               v-model="newPeriodText"
               type="text"
-              class="min-w-0 flex-1 rounded-lg border border-slate-300 px-2.5 py-1.5 text-[15px] outline-none focus:border-blue-500 sm:px-3 sm:py-2"
+              inputmode="numeric"
+              enterkeyhint="done"
+              autocomplete="off"
+              class="min-w-0 flex-1 rounded-lg border border-slate-300 px-2.5 py-1.5 text-[15px] text-slate-900 outline-none focus:border-blue-500 sm:px-3 sm:py-2"
               placeholder="Например: 2024"
             />
             <button
@@ -863,8 +874,10 @@ onMounted(() => {
         </div>
 
         <div class="mb-3 rounded-lg border border-slate-200 p-3 sm:mb-4 sm:p-4">
-          <div class="mb-2 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-            <p class="text-xs font-semibold leading-snug text-slate-800 sm:text-sm">
+          <div
+            class="mb-2 flex min-w-0 flex-col gap-2 sm:flex-row sm:items-start sm:justify-between"
+          >
+            <p class="min-w-0 break-words text-xs font-semibold leading-snug text-slate-800 sm:text-sm">
               3) Значения для периода:
               <span class="text-blue-700">{{ selectedPeriod?.period || '—' }}</span>
             </p>
@@ -885,12 +898,12 @@ onMounted(() => {
             <div
               v-for="valueItem in selectedPeriod.values"
               :key="valueItem.name"
-              class="grid grid-cols-12 gap-1.5 sm:gap-2"
+              class="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-12 sm:gap-2"
             >
               <input
                 :value="valueItem.name"
                 type="text"
-                class="col-span-6 rounded-lg border border-slate-300 px-2 py-1.5 text-xs outline-none focus:border-blue-500 sm:col-span-7 sm:px-3 sm:py-2 sm:text-sm"
+                class="min-w-0 rounded-lg border border-slate-300 px-2 py-1.5 text-xs outline-none focus:border-blue-500 sm:col-span-7 sm:px-3 sm:py-2 sm:text-sm"
                 disabled
               />
               <input
@@ -900,13 +913,13 @@ onMounted(() => {
                 enterkeyhint="done"
                 min="0"
                 step="any"
-                class="col-span-4 rounded-lg border border-slate-300 px-2 py-1.5 text-xs tabular-nums text-slate-900 outline-none focus:border-blue-500 sm:col-span-3 sm:px-3 sm:py-2 sm:text-sm"
+                class="min-w-0 rounded-lg border border-slate-300 px-2 py-1.5 text-xs tabular-nums text-slate-900 outline-none focus:border-blue-500 sm:col-span-3 sm:px-3 sm:py-2 sm:text-sm"
                 placeholder="Значение"
               />
               <input
                 :value="getBarColor(valueItem.name)"
                 type="color"
-                class="col-span-2 h-9 w-full min-w-0 cursor-pointer rounded border border-slate-300 bg-white p-0.5 sm:h-10 sm:p-1"
+                class="h-9 w-full max-w-[5.5rem] min-w-0 cursor-pointer rounded border border-slate-300 bg-white p-0.5 sm:col-span-2 sm:h-10 sm:max-w-none sm:p-1"
                 @input="updateBarColor(valueItem.name, ($event.target as HTMLInputElement).value)"
               />
             </div>
@@ -936,9 +949,9 @@ onMounted(() => {
       </section>
 
       <section
-        class="hidden flex-col rounded-xl border border-slate-200/80 bg-white p-4 shadow-sm lg:flex lg:rounded-2xl lg:p-5"
+        class="hidden min-w-0 max-w-full flex-col overflow-hidden rounded-xl border border-slate-200/80 bg-white p-4 shadow-sm lg:flex lg:rounded-2xl lg:p-5"
       >
-        <div class="flex flex-wrap items-start justify-between gap-2 sm:gap-3">
+        <div class="flex min-w-0 flex-wrap items-start justify-between gap-2 sm:gap-3">
           <div class="min-w-0 flex-1">
             <h2 class="text-lg font-bold tracking-tight sm:text-xl">{{ chartTitle || 'Без названия' }}</h2>
             <p v-if="chartDescription" class="mt-0.5 text-xs text-slate-600 sm:text-sm">{{ chartDescription }}</p>
@@ -952,7 +965,7 @@ onMounted(() => {
             Play
           </button>
         </div>
-        <div class="relative mt-3 min-h-[480px] lg:min-h-[520px]">
+        <div class="relative mt-3 min-h-[480px] min-w-0 lg:min-h-[520px]">
           <Transition
             enter-active-class="transition duration-300 ease-out"
             enter-from-class="opacity-0 scale-95"
@@ -976,7 +989,7 @@ onMounted(() => {
           </Transition>
           <svg
             ref="svgRef"
-            class="h-[480px] w-full rounded-lg border border-slate-200 bg-white lg:h-[520px]"
+            class="h-[480px] w-full min-w-0 max-w-full rounded-lg border border-slate-200 bg-white lg:h-[520px]"
           ></svg>
         </div>
       </section>
@@ -1004,21 +1017,23 @@ onMounted(() => {
     >
       <div
         v-if="isMobileLayout && chartPanelOpen"
-        class="fixed inset-0 z-[60] flex max-h-[100dvh] flex-col bg-white lg:hidden"
+        class="fixed inset-0 z-[60] flex max-h-[100dvh] max-w-[100vw] flex-col overflow-x-hidden bg-white lg:hidden"
         role="dialog"
         aria-modal="true"
         aria-labelledby="chart-panel-title"
       >
         <div
-          class="shrink-0 border-b border-slate-200 px-3 py-2.5 pt-[max(0.5rem,env(safe-area-inset-top))] sm:px-4 sm:py-3"
+          class="min-w-0 shrink-0 border-b border-slate-200 px-3 py-2.5 pt-[max(0.5rem,env(safe-area-inset-top))] sm:px-4 sm:py-3"
         >
-          <h2 id="chart-panel-title" class="text-base font-bold leading-snug sm:text-lg">
+          <h2 id="chart-panel-title" class="break-words text-base font-bold leading-snug sm:text-lg">
             {{ chartTitle || 'Без названия' }}
           </h2>
-          <p v-if="chartDescription" class="mt-0.5 text-xs text-slate-600 sm:text-sm">{{ chartDescription }}</p>
+          <p v-if="chartDescription" class="mt-0.5 break-words text-xs text-slate-600 sm:text-sm">
+            {{ chartDescription }}
+          </p>
         </div>
         <div
-          class="relative min-h-0 flex-1 px-3 pb-[max(4.75rem,env(safe-area-inset-bottom))] pt-2 sm:px-4 sm:pb-[max(5.5rem,env(safe-area-inset-bottom))] sm:pt-3"
+          class="relative min-h-0 min-w-0 flex-1 overflow-x-hidden px-3 pb-[max(4.75rem,env(safe-area-inset-bottom))] pt-2 sm:px-4 sm:pb-[max(5.5rem,env(safe-area-inset-bottom))] sm:pt-3"
         >
           <Transition
             enter-active-class="transition duration-300 ease-out"
@@ -1043,7 +1058,7 @@ onMounted(() => {
           </Transition>
           <svg
             ref="svgRefMobile"
-            class="h-full min-h-[240px] w-full rounded-lg border border-slate-200 bg-white"
+            class="h-full min-h-[240px] w-full min-w-0 max-w-full rounded-lg border border-slate-200 bg-white"
           ></svg>
 
           <div

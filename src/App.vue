@@ -49,7 +49,7 @@ onMounted(() => {
 <template>
   <div
     v-if="!showChartApp"
-    class="relative flex min-h-[100dvh] flex-col items-center justify-center overflow-hidden px-6 pb-[max(2rem,env(safe-area-inset-bottom))] pt-[max(2rem,env(safe-area-inset-top))]"
+    class="relative flex min-h-[100dvh] min-w-0 max-w-[100vw] flex-col items-center justify-center overflow-x-hidden overflow-y-auto px-6 pb-[max(2rem,env(safe-area-inset-bottom))] pt-[max(2rem,env(safe-area-inset-top))]"
   >
     <!-- Фон -->
     <div
