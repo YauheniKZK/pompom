@@ -2,6 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import WebApp from '@twa-dev/sdk'
 import * as d3 from 'd3'
+import { useI18n } from 'vue-i18n'
 import { isTelegramMiniAppEnvironment } from './lib/telegramEnv'
 import {
   allNames,
@@ -16,6 +17,7 @@ import {
   type RawRaceRow,
 } from './lib/barChartRaceExplained'
 import { importBarChartRaceCsv } from './lib/importBarChartCsv'
+import { persistLocale, type AppLocale } from './i18n'
 
 type RawDataItem = {
   name: string
@@ -42,8 +44,15 @@ type ChartRenderSettings = {
   labelColor: string
 }
 
-const chartTitle = ref('Top Sales by Year')
-const chartDescription = ref('Bar Chart Race на основе периодов')
+const { t, locale } = useI18n({ useScope: 'global' })
+
+function setLocale(next: AppLocale) {
+  locale.value = next
+  persistLocale(next)
+}
+
+const chartTitle = ref(t('chart.defaultTitle'))
+const chartDescription = ref(t('chart.defaultDescription'))
 const labelLayoutMode = ref<LabelLayoutMode>('mode3')
 const BAR_HEIGHT_PX = 50
 const NAME_FONT_SIZE_PX = 13
@@ -114,8 +123,8 @@ const mainContainerStyle = computed(() => ({
 }))
 
 const mobileFabStyle = computed(() => ({
-  bottom: `max(0.75rem, env(safe-area-inset-bottom), ${tgBottomInsetCss}, ${telegramBottomInsetPx.value}px)`,
-  right: 'max(0.75rem, env(safe-area-inset-right))',
+  bottom: `calc(max(0.75rem, env(safe-area-inset-bottom), ${tgBottomInsetCss}, ${telegramBottomInsetPx.value}px) + 10px)`,
+  right: 'calc(max(0.75rem, env(safe-area-inset-right)) + 6px)',
 }))
 
 const mobilePanelHeaderStyle = computed(() => ({
@@ -127,7 +136,8 @@ const mobilePanelBodyStyle = computed(() => ({
 }))
 
 const mobilePanelFloatsStyle = computed(() => ({
-  bottom: `max(0.5rem, env(safe-area-inset-bottom), ${tgBottomInsetCss}, ${telegramBottomInsetPx.value}px)`,
+  bottom: `calc(max(0.5rem, env(safe-area-inset-bottom), ${tgBottomInsetCss}, ${telegramBottomInsetPx.value}px) + 10px)`,
+  right: 'calc(max(0.5rem, env(safe-area-inset-right)) + 6px)',
 }))
 
 let startTimeout: number | null = null
@@ -288,13 +298,13 @@ let raceGeneration = 0
 const addName = () => {
   const name = newNameText.value.trim()
   if (!name) {
-    errorMessage.value = 'Введите название элемента.'
+    errorMessage.value = t('chart.errors.enterItem')
     return
   }
 
   const exists = names.value.some((item) => item.name === name)
   if (exists) {
-    errorMessage.value = 'Такое название уже существует.'
+    errorMessage.value = t('chart.errors.duplicateItem')
     return
   }
 
@@ -322,13 +332,13 @@ const selectPeriod = (periodId: string) => {
 const addPeriod = () => {
   const period = newPeriodText.value.trim()
   if (!period) {
-    errorMessage.value = 'Введите название периода.'
+    errorMessage.value = t('chart.errors.enterPeriod')
     return
   }
 
   const exists = periods.value.some((item) => item.period === period)
   if (exists) {
-    errorMessage.value = 'Такой период уже существует.'
+    errorMessage.value = t('chart.errors.duplicatePeriod')
     return
   }
 
@@ -368,7 +378,7 @@ const onCsvFile = (e: Event) => {
   const reader = new FileReader()
   reader.onload = () => {
     const text = String(reader.result ?? '')
-    const res = importBarChartRaceCsv(text)
+    const res = importBarChartRaceCsv(text, locale.value === 'ru' ? 'ru' : 'en')
     if (!res.ok) {
       errorMessage.value = res.error
       return
@@ -389,7 +399,7 @@ const onCsvFile = (e: Event) => {
     })
   }
   reader.onerror = () => {
-    errorMessage.value = 'Не удалось прочитать файл.'
+    errorMessage.value = t('chart.errors.readFile')
   }
   reader.readAsText(file, 'UTF-8')
 }
@@ -412,11 +422,11 @@ const clearTimers = () => {
 
 const collectDataFromForm = (): RawDataItem[] | null => {
   if (periods.value.length === 0) {
-    errorMessage.value = 'Добавьте хотя бы один период.'
+    errorMessage.value = t('chart.errors.addPeriod')
     return null
   }
   if (names.value.length === 0) {
-    errorMessage.value = 'Добавьте хотя бы одно название элемента.'
+    errorMessage.value = t('chart.errors.addItem')
     return null
   }
 
@@ -424,12 +434,12 @@ const collectDataFromForm = (): RawDataItem[] | null => {
   for (const periodItem of periods.value) {
     const period = periodItem.period.trim()
     if (!period) {
-      errorMessage.value = 'У каждого периода должно быть название.'
+      errorMessage.value = t('chart.errors.periodNameRequired')
       return null
     }
 
     if (periodItem.values.length !== names.value.length) {
-      errorMessage.value = `В периоде "${period}" должен быть полный список названий.`
+      errorMessage.value = t('chart.errors.periodMissingItems', { period })
       return null
     }
 
@@ -438,7 +448,7 @@ const collectDataFromForm = (): RawDataItem[] | null => {
       const value = Number(valueItem.value)
       const isInvalid = !name || Number.isNaN(value) || !Number.isFinite(value) || value < 0
       if (isInvalid) {
-        errorMessage.value = `Проверьте значения в периоде "${period}" (value >= 0).`
+        errorMessage.value = t('chart.errors.periodInvalidValues', { period })
         return null
       }
       normalized.push({ name, value, period })
@@ -675,47 +685,58 @@ onMounted(() => {
         class="min-w-0 max-w-full overflow-hidden rounded-xl border border-slate-200/80 bg-white p-3 shadow-sm sm:p-4 lg:rounded-2xl lg:p-6"
       >
         <h1 class="mb-3 break-words text-xl font-bold tracking-tight sm:mb-4 sm:text-2xl">
-          Настройки Bar Chart Race
+          {{ t('chart.settingsTitle') }}
         </h1>
+        <div class="mb-3 inline-flex items-center gap-1 rounded-lg border border-slate-300 bg-white p-1 text-xs sm:mb-4">
+          <span class="px-2 text-slate-600">{{ t('language') }}</span>
+          <button
+            type="button"
+            class="rounded px-2.5 py-1 transition"
+            :class="locale === 'ru' ? 'bg-slate-800 text-white' : 'text-slate-700 hover:bg-slate-100'"
+            @click="setLocale('ru')"
+          >
+            RU
+          </button>
+          <button
+            type="button"
+            class="rounded px-2.5 py-1 transition"
+            :class="locale === 'en' ? 'bg-slate-800 text-white' : 'text-slate-700 hover:bg-slate-100'"
+            @click="setLocale('en')"
+          >
+            EN
+          </button>
+        </div>
 
         <div class="mb-3 sm:mb-4">
-          <label class="mb-1 block text-xs font-medium text-slate-700 sm:text-sm">Название</label>
+          <label class="mb-1 block text-xs font-medium text-slate-700 sm:text-sm">{{ t('chart.title') }}</label>
           <input
             v-model="chartTitle"
             type="text"
             class="w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-[15px] outline-none focus:border-blue-500 sm:px-3 sm:py-2"
-            placeholder="Введите заголовок графика"
+            :placeholder="t('chart.titlePlaceholder')"
           />
         </div>
 
         <div class="mb-3 sm:mb-4">
           <label class="mb-1 block text-xs font-medium text-slate-700 sm:text-sm"
-            >Описание (необязательно)</label
+            >{{ t('chart.description') }}</label
           >
           <textarea
             v-model="chartDescription"
             rows="2"
             class="min-h-[4.5rem] w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-[15px] outline-none focus:border-blue-500 sm:min-h-[5.5rem] sm:px-3 sm:py-2"
-            placeholder="Введите описание"
+            :placeholder="t('chart.descriptionPlaceholder')"
           />
         </div>
 
         <div
           class="mb-3 min-w-0 rounded-lg border border-dashed border-slate-300 bg-slate-50/80 p-3 sm:mb-4 sm:p-4"
         >
-          <p class="mb-1 text-xs font-medium sm:text-sm">Импорт CSV (по желанию)</p>
+          <p class="mb-1 text-xs font-medium sm:text-sm">{{ t('chart.csvTitle') }}</p>
           <p
             class="mb-2 break-words text-[11px] leading-snug text-slate-600 sm:mb-3 sm:text-xs sm:leading-relaxed"
           >
-            Формат из примера:
-            <code class="break-all rounded bg-white px-1 py-0.5 text-[11px] text-slate-800">date,name,value</code>
-            . Обязательные поля:
-            <code class="break-all rounded bg-white px-1 py-0.5 text-[11px] text-slate-800">date,name,value</code>
-            ; дата обычно в виде
-            <code class="break-all rounded bg-white px-1 py-0.5 text-[11px] text-slate-800">YYYY-MM-DD</code>
-            . Также можно:
-            <code class="break-all rounded bg-white px-1 py-0.5 text-[11px] text-slate-800">name,value,period</code>
-            . Импорт заменяет текущие данные формы.
+            {{ t('chart.csvDescription') }}
           </p>
           <input
             ref="csvFileInput"
@@ -729,16 +750,16 @@ onMounted(() => {
             class="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-800 hover:bg-slate-50 sm:px-4 sm:py-2 sm:text-sm"
             @click="triggerCsvPick"
           >
-            Выбрать CSV…
+            {{ t('chart.chooseCsv') }}
           </button>
         </div>
 
         <div class="mb-3 sm:mb-4">
           <label class="mb-1.5 block text-xs font-medium text-slate-700 sm:mb-2 sm:text-sm"
-            >Расположение подписи на баре</label
+            >{{ t('chart.labelLayoutTitle') }}</label
           >
           <p class="mb-2 text-[11px] text-slate-500 sm:mb-3 sm:text-xs">
-            Выберите, где показывать название и значение: в правом или левом краю бара.
+            {{ t('chart.labelLayoutHelp') }}
           </p>
           <div class="grid min-w-0 gap-2 sm:grid-cols-2 sm:gap-3">
             <label
@@ -751,9 +772,9 @@ onMounted(() => {
             >
               <input v-model="labelLayoutMode" type="radio" value="mode3" class="mt-0.5 h-3.5 w-3.5 sm:mt-1 sm:h-4 sm:w-4" />
               <span class="min-w-0 flex-1 text-xs leading-snug text-slate-700 sm:text-sm">
-                <span class="block font-semibold text-slate-900">Справа</span>
+                <span class="block font-semibold text-slate-900">{{ t('chart.right') }}</span>
                 <span class="mt-0.5 block text-[11px] text-slate-500 sm:text-xs">
-                  Название и значение друг под другом в правом краю бара
+                  {{ t('chart.rightDesc') }}
                 </span>
               </span>
             </label>
@@ -768,9 +789,9 @@ onMounted(() => {
             >
               <input v-model="labelLayoutMode" type="radio" value="mode4" class="mt-0.5 h-3.5 w-3.5 sm:mt-1 sm:h-4 sm:w-4" />
               <span class="min-w-0 flex-1 text-xs leading-snug text-slate-700 sm:text-sm">
-                <span class="block font-semibold text-slate-900">Слева</span>
+                <span class="block font-semibold text-slate-900">{{ t('chart.left') }}</span>
                 <span class="mt-0.5 block text-[11px] text-slate-500 sm:text-xs">
-                  Название и значение друг под другом в левом краю бара
+                  {{ t('chart.leftDesc') }}
                 </span>
               </span>
             </label>
@@ -778,20 +799,20 @@ onMounted(() => {
         </div>
 
         <div class="mb-3 rounded-lg border border-slate-200 p-3 sm:mb-4 sm:p-4">
-          <p class="mb-2 text-xs font-semibold text-slate-800 sm:text-sm">1) Названия элементов</p>
+          <p class="mb-2 text-xs font-semibold text-slate-800 sm:text-sm">{{ t('chart.itemsSection') }}</p>
           <div class="mb-2 flex min-w-0 gap-1.5 sm:mb-3 sm:gap-2">
             <input
               v-model="newNameText"
               type="text"
               class="min-w-0 flex-1 rounded-lg border border-slate-300 px-2.5 py-1.5 text-[15px] outline-none focus:border-blue-500 sm:px-3 sm:py-2"
-              placeholder="Например: Product A"
+              :placeholder="t('chart.itemPlaceholder')"
             />
             <button
               type="button"
               class="shrink-0 rounded-lg bg-slate-800 px-3 py-1.5 text-xs font-medium text-white hover:bg-slate-900 sm:px-4 sm:py-2 sm:text-sm"
               @click="addName"
             >
-              Добавить
+              {{ t('chart.add') }}
             </button>
           </div>
 
@@ -814,7 +835,7 @@ onMounted(() => {
         </div>
 
         <div class="mb-3 rounded-lg border border-slate-200 p-3 sm:mb-4 sm:p-4">
-          <p class="mb-2 text-xs font-semibold text-slate-800 sm:text-sm">2) Даты / периоды</p>
+          <p class="mb-2 text-xs font-semibold text-slate-800 sm:text-sm">{{ t('chart.periodsSection') }}</p>
           <div class="mb-2 flex min-w-0 gap-1.5 sm:mb-3 sm:gap-2">
             <input
               v-model="newPeriodText"
@@ -823,14 +844,14 @@ onMounted(() => {
               enterkeyhint="done"
               autocomplete="off"
               class="min-w-0 flex-1 rounded-lg border border-slate-300 px-2.5 py-1.5 text-[15px] text-slate-900 outline-none focus:border-blue-500 sm:px-3 sm:py-2"
-              placeholder="Например: 2024"
+              :placeholder="t('chart.periodPlaceholder')"
             />
             <button
               type="button"
               class="shrink-0 rounded-lg bg-slate-800 px-3 py-1.5 text-xs font-medium text-white hover:bg-slate-900 sm:px-4 sm:py-2 sm:text-sm"
               @click="addPeriod"
             >
-              Добавить
+              {{ t('chart.add') }}
             </button>
           </div>
 
@@ -847,7 +868,7 @@ onMounted(() => {
               "
               @click="selectPeriod(periodItem.id)"
             >
-              {{ periodItem.period || 'Без названия' }}
+              {{ periodItem.period || t('chart.untitled') }}
               <span
                 class="cursor-pointer text-red-500"
                 @click.stop="removePeriod(periodItem.id)"
@@ -863,13 +884,13 @@ onMounted(() => {
             class="mb-2 flex min-w-0 flex-col gap-2 sm:flex-row sm:items-start sm:justify-between"
           >
             <p class="min-w-0 break-words text-xs font-semibold leading-snug text-slate-800 sm:text-sm">
-              3) Значения для периода:
+              {{ t('chart.valuesSection') }}
               <span class="text-blue-700">{{ selectedPeriod?.period || '—' }}</span>
             </p>
           </div>
 
           <div v-if="!selectedPeriod" class="text-xs text-slate-500 sm:text-sm">
-            Сначала добавьте и выберите период.
+            {{ t('chart.noPeriod') }}
           </div>
 
           <div v-else class="space-y-1.5 sm:space-y-2">
@@ -892,7 +913,7 @@ onMounted(() => {
                 min="0"
                 step="any"
                 class="w-28 shrink-0 rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs tabular-nums text-slate-900 outline-none focus:border-blue-500 sm:w-36 sm:px-3 sm:py-2 sm:text-sm"
-                placeholder="Значение"
+                :placeholder="t('chart.valuePlaceholder')"
               />
             </div>
           </div>
@@ -906,9 +927,9 @@ onMounted(() => {
           v-if="countdown !== null"
           class="mb-3 flex items-center justify-center gap-2 rounded-xl border border-blue-200 bg-gradient-to-br from-blue-50 to-indigo-50 px-3 py-3 text-slate-700 shadow-inner sm:mb-4 sm:px-4 sm:py-3.5"
         >
-          <span class="text-xs font-medium sm:text-sm">Старт через</span>
+          <span class="text-xs font-medium sm:text-sm">{{ t('chart.startIn') }}</span>
           <span class="min-w-[2.5ch] text-center text-2xl font-bold tabular-nums text-blue-600 sm:text-3xl">{{ countdown }}</span>
-          <span class="text-xs sm:text-sm">сек</span>
+          <span class="text-xs sm:text-sm">{{ t('chart.secShort') }}</span>
         </div>
         <button
           v-else-if="isAnimating"
@@ -916,7 +937,7 @@ onMounted(() => {
           disabled
           class="mb-3 cursor-not-allowed rounded-lg bg-slate-300 px-4 py-1.5 text-sm font-medium text-slate-600 sm:mb-4 sm:px-5 sm:py-2"
         >
-          Анимация…
+          {{ t('chart.animating') }}
         </button>
       </section>
 
@@ -925,7 +946,7 @@ onMounted(() => {
       >
         <div class="flex min-w-0 flex-wrap items-start justify-between gap-2 sm:gap-3">
           <div class="min-w-0 flex-1">
-            <h2 class="text-lg font-bold tracking-tight sm:text-xl">{{ chartTitle || 'Без названия' }}</h2>
+            <h2 class="text-lg font-bold tracking-tight sm:text-xl">{{ chartTitle || t('chart.untitled') }}</h2>
             <p v-if="chartDescription" class="mt-0.5 text-xs text-slate-600 sm:text-sm">{{ chartDescription }}</p>
           </div>
           <button
@@ -934,7 +955,7 @@ onMounted(() => {
             class="shrink-0 rounded-full bg-blue-600 px-4 py-2 text-xs font-semibold text-white shadow-md transition hover:bg-blue-700 active:scale-[0.98] sm:px-5 sm:py-2.5 sm:text-sm"
             @click="onPlay"
           >
-            Play
+            {{ t('chart.play') }}
           </button>
         </div>
         <div class="relative mt-3 min-h-[480px] min-w-0 lg:min-h-[520px]">
@@ -951,12 +972,12 @@ onMounted(() => {
               class="pointer-events-none absolute inset-0 z-10 flex flex-col items-center justify-center rounded-lg border border-blue-100 bg-gradient-to-b from-white/95 to-blue-50/95 px-4 shadow-inner backdrop-blur-[2px]"
               aria-live="polite"
             >
-              <span class="text-sm font-medium tracking-wide text-slate-500">Старт через</span>
+              <span class="text-sm font-medium tracking-wide text-slate-500">{{ t('chart.startIn') }}</span>
               <span
                 class="mt-1 animate-pulse text-7xl font-bold tabular-nums leading-none text-blue-600 drop-shadow-sm"
                 >{{ countdown }}</span
               >
-              <span class="mt-2 text-xs font-medium uppercase tracking-widest text-slate-400">секунд</span>
+              <span class="mt-2 text-xs font-medium uppercase tracking-widest text-slate-400">{{ t('chart.seconds') }}</span>
             </div>
           </Transition>
           <svg
@@ -971,11 +992,11 @@ onMounted(() => {
       v-show="isMobileLayout && !chartPanelOpen && showMobileChartFloats"
       type="button"
       :style="mobileFabStyle"
-      class="fixed z-50 flex h-12 w-12 items-center justify-center rounded-full bg-blue-600 text-white shadow-lg ring-2 ring-white/20 transition hover:bg-blue-700 active:scale-95 sm:bottom-4 sm:right-4 sm:h-14 sm:w-14 lg:hidden"
-      aria-label="Открыть график"
+      class="fixed z-50 flex h-14 w-14 items-center justify-center rounded-full bg-blue-600 text-white shadow-lg ring-2 ring-white/20 transition hover:bg-blue-700 active:scale-95 sm:h-16 sm:w-16 lg:hidden"
+      :aria-label="t('chart.openChart')"
       @click="openChartPanel"
     >
-      <svg class="h-6 w-6 sm:h-7 sm:w-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+      <svg class="h-7 w-7 sm:h-8 sm:w-8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
         <path d="M4 19h16M4 15l4-4 4 4 4-8 4 4" stroke-linecap="round" stroke-linejoin="round" />
       </svg>
     </button>
@@ -1000,7 +1021,7 @@ onMounted(() => {
           class="min-w-0 shrink-0 border-b border-slate-200 px-3 py-2.5 sm:px-4 sm:py-3"
         >
           <h2 id="chart-panel-title" class="break-words text-base font-bold leading-snug sm:text-lg">
-            {{ chartTitle || 'Без названия' }}
+            {{ chartTitle || t('chart.untitled') }}
           </h2>
           <p v-if="chartDescription" class="mt-0.5 break-words text-xs text-slate-600 sm:text-sm">
             {{ chartDescription }}
@@ -1023,12 +1044,12 @@ onMounted(() => {
               class="pointer-events-none absolute inset-x-3 inset-y-2 z-10 flex flex-col items-center justify-center rounded-lg border border-blue-100 bg-gradient-to-b from-white/95 to-blue-50/95 px-3 shadow-inner backdrop-blur-[2px] sm:inset-x-4 sm:inset-y-3 sm:px-4"
               aria-live="polite"
             >
-              <span class="text-sm font-medium tracking-wide text-slate-500">Старт через</span>
+              <span class="text-sm font-medium tracking-wide text-slate-500">{{ t('chart.startIn') }}</span>
               <span
                 class="mt-1 animate-pulse text-6xl font-bold tabular-nums leading-none text-blue-600 drop-shadow-sm sm:text-7xl"
                 >{{ countdown }}</span
               >
-              <span class="mt-2 text-xs font-medium uppercase tracking-widest text-slate-400">секунд</span>
+              <span class="mt-2 text-xs font-medium uppercase tracking-widest text-slate-400">{{ t('chart.seconds') }}</span>
             </div>
           </Transition>
           <svg
@@ -1043,26 +1064,26 @@ onMounted(() => {
           >
             <div
               :style="mobilePanelFloatsStyle"
-              class="pointer-events-auto absolute right-2 flex flex-col gap-2 sm:bottom-[max(0.75rem,env(safe-area-inset-bottom))] sm:right-3 sm:gap-3"
+              class="pointer-events-auto absolute flex flex-col gap-2 sm:gap-3"
             >
               <button
                 v-if="showCustomPanelCloseButton"
                 type="button"
-                class="flex h-12 w-12 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700 shadow-lg ring-1 ring-black/5 transition hover:bg-slate-50 active:scale-95 sm:h-14 sm:w-14"
-                aria-label="Закрыть"
+                class="flex h-14 w-14 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700 shadow-lg ring-1 ring-black/5 transition hover:bg-slate-50 active:scale-95 sm:h-16 sm:w-16"
+                :aria-label="t('chart.close')"
                 @click="closeChartPanel"
               >
-                <svg class="h-5 w-5 sm:h-6 sm:w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                <svg class="h-6 w-6 sm:h-7 sm:w-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
                   <path d="M18 6L6 18M6 6l12 12" />
                 </svg>
               </button>
               <button
                 type="button"
-                class="flex h-12 w-12 items-center justify-center rounded-full bg-blue-600 text-white shadow-lg ring-2 ring-blue-500/30 transition hover:bg-blue-700 active:scale-95 sm:h-14 sm:w-14"
-                aria-label="Запустить анимацию"
+                class="flex h-14 w-14 items-center justify-center rounded-full bg-blue-600 text-white shadow-lg ring-2 ring-blue-500/30 transition hover:bg-blue-700 active:scale-95 sm:h-16 sm:w-16"
+                :aria-label="t('chart.startAnimation')"
                 @click="onPlay"
               >
-                <svg class="ml-0.5 h-6 w-6 sm:h-7 sm:w-7" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                <svg class="ml-0.5 h-7 w-7 sm:h-8 sm:w-8" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
                   <path d="M8 5.14v14l11-7-11-6.86z" />
                 </svg>
               </button>

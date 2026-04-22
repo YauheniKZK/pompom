@@ -1,4 +1,5 @@
 import * as d3 from 'd3'
+import type { AppLocale } from '../i18n'
 
 export type ImportedNameItem = {
   id: string
@@ -24,6 +25,33 @@ export type CsvImportErr = {
 }
 
 export type CsvImportResult = CsvImportOk | CsvImportErr
+
+type CsvErrorKey =
+  | 'emptyFile'
+  | 'parseFailed'
+  | 'noRows'
+  | 'requiredColumns'
+  | 'dateOrPeriod'
+  | 'noValidRows'
+
+const CSV_ERRORS: Record<AppLocale, Record<CsvErrorKey, string>> = {
+  ru: {
+    emptyFile: 'Файл пуст.',
+    parseFailed: 'Не удалось разобрать CSV.',
+    noRows: 'Нет строк данных (кроме заголовка).',
+    requiredColumns: 'Нужны колонки name и value (или аналоги: label, value).',
+    dateOrPeriod: 'Нужна колонка date (YYYY-MM-DD) или period.',
+    noValidRows: 'Нет ни одной валидной строки (name, value, дата/период).',
+  },
+  en: {
+    emptyFile: 'The file is empty.',
+    parseFailed: 'Failed to parse CSV.',
+    noRows: 'No data rows found (header only).',
+    requiredColumns: 'Columns name and value are required (or aliases: label, value).',
+    dateOrPeriod: 'Column date (YYYY-MM-DD) or period is required.',
+    noValidRows: 'No valid rows found (name, value, date/period).',
+  },
+}
 
 function stripBom(text: string) {
   return text.charCodeAt(0) === 0xfeff ? text.slice(1) : text
@@ -55,18 +83,19 @@ function hashHue(name: string) {
  * Импорт CSV в форме D3 Bar Chart Race: date, name, value [, category].
  * Упрощённый формат: name, value, period (без date).
  */
-export function importBarChartRaceCsv(csvText: string): CsvImportResult {
+export function importBarChartRaceCsv(csvText: string, locale: AppLocale = 'ru'): CsvImportResult {
+  const l = locale === 'ru' ? 'ru' : 'en'
   const text = stripBom(csvText.trim())
-  if (!text) return { ok: false, error: 'Файл пуст.' }
+  if (!text) return { ok: false, error: CSV_ERRORS[l].emptyFile }
 
   let rows: Record<string, unknown>[]
   try {
     rows = d3.csvParse(text, (raw) => raw as Record<string, unknown>)
   } catch {
-    return { ok: false, error: 'Не удалось разобрать CSV.' }
+    return { ok: false, error: CSV_ERRORS[l].parseFailed }
   }
 
-  if (rows.length === 0) return { ok: false, error: 'Нет строк данных (кроме заголовка).' }
+  if (rows.length === 0) return { ok: false, error: CSV_ERRORS[l].noRows }
 
   const sample = rows[0]!
   const keyDate = findColumn(sample, ['date', 'дата', 'time'])
@@ -78,14 +107,14 @@ export function importBarChartRaceCsv(csvText: string): CsvImportResult {
   if (!keyName || !keyValue) {
     return {
       ok: false,
-      error: 'Нужны колонки name и value (или аналоги: label, value).',
+      error: CSV_ERRORS[l].requiredColumns,
     }
   }
 
   if (!keyDate && !keyPeriod) {
     return {
       ok: false,
-      error: 'Нужна колонка date (YYYY-MM-DD) или period.',
+      error: CSV_ERRORS[l].dateOrPeriod,
     }
   }
 
@@ -143,7 +172,7 @@ export function importBarChartRaceCsv(csvText: string): CsvImportResult {
   }
 
   if (normalized.length === 0) {
-    return { ok: false, error: 'Нет ни одной валидной строки (name, value, дата/период).' }
+    return { ok: false, error: CSV_ERRORS[l].noValidRows }
   }
 
   const byPeriodLabel = d3.group(normalized, (d) => d.periodLabel)

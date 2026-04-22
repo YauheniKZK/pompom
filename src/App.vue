@@ -3,6 +3,15 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import WebApp from '@twa-dev/sdk'
 import { isTelegramMiniAppEnvironment } from './lib/telegramEnv'
 import ChartApp from './ChartApp.vue'
+import { useI18n } from 'vue-i18n'
+import { persistLocale, type AppLocale } from './i18n'
+
+const { t, locale } = useI18n({ useScope: 'global' })
+
+function setLocale(next: AppLocale) {
+  locale.value = next
+  persistLocale(next)
+}
 
 function detectTelegramMiniApp(): boolean {
   if (import.meta.env.DEV) return true
@@ -144,14 +153,13 @@ onBeforeUnmount(() => {
       <p
         class="mb-2 text-[11px] font-semibold uppercase tracking-[0.2em] text-[#5dadec]"
       >
-        Mini App
+        {{ t('app.miniApp') }}
       </p>
       <h1 class="text-balance text-2xl font-bold tracking-tight text-white sm:text-[1.75rem]">
-        Откройте в Telegram
+        {{ t('app.openInTelegram') }}
       </h1>
       <p class="mt-4 text-pretty text-[15px] leading-relaxed text-slate-400">
-        Это приложение работает только внутри Telegram. Перейдите к боту и запустите его из чата —
-        так вы получите полный доступ к графикам и настройкам.
+        {{ t('app.fallbackDescription') }}
       </p>
 
       <a
@@ -170,7 +178,7 @@ onBeforeUnmount(() => {
             d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69a.2.2 0 00-.05-.18c-.06-.05-.14-.03-.21-.02-.09.02-1.49.95-4.22 2.79-.4.27-.76.41-1.08.4-.36-.01-1.04-.2-1.55-.37-.63-.2-1.12-.31-1.08-.66.02-.18.27-.36.74-.55 2.92-1.27 4.86-2.11 5.83-2.51 2.78-1.16 3.35-1.36 3.73-1.36.08 0 .27.02.39.12.1.08.13.19.14.27-.01.06.01.24 0 .38z"
           />
         </svg>
-        Перейти к боту
+        {{ t('app.openBot') }}
         <svg
           class="h-4 w-4 shrink-0 opacity-70 transition group-hover:translate-x-0.5 group-hover:opacity-100"
           viewBox="0 0 24 24"
@@ -184,8 +192,27 @@ onBeforeUnmount(() => {
       </a>
 
       <p class="mt-10 max-w-xs text-center text-xs leading-relaxed text-slate-500">
-        Ссылка откроется в приложении Telegram, если оно установлено на устройстве.
+        {{ t('app.fallbackHint') }}
       </p>
+      <div class="mt-6 inline-flex items-center gap-2 rounded-xl border border-white/15 bg-white/5 p-1 text-xs text-slate-300">
+        <span class="px-2">{{ t('language') }}</span>
+        <button
+          type="button"
+          class="rounded-lg px-2.5 py-1 transition"
+          :class="locale === 'ru' ? 'bg-white text-slate-900' : 'hover:bg-white/10'"
+          @click="setLocale('ru')"
+        >
+          RU
+        </button>
+        <button
+          type="button"
+          class="rounded-lg px-2.5 py-1 transition"
+          :class="locale === 'en' ? 'bg-white text-slate-900' : 'hover:bg-white/10'"
+          @click="setLocale('en')"
+        >
+          EN
+        </button>
+      </div>
     </div>
   </div>
   <ChartApp v-else />
