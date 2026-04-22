@@ -393,6 +393,7 @@ export function createExplainedContext(
   const svg = d3.select(svgEl)
   svg.selectAll('*').remove()
   svg.attr('viewBox', `0 0 ${width} ${height}`)
+  svg.attr('preserveAspectRatio', 'xMinYMin meet')
 
   const colorFn = (d: RankedRow) => options.color(d.name)
 
