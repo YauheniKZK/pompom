@@ -19,6 +19,7 @@ function detectTelegramMiniApp(): boolean {
 }
 
 const showChartApp = ref(detectTelegramMiniApp())
+const endpointMissing = ref(!String(import.meta.env.VITE_APP_REST_ENDPOINT ?? '').trim())
 const viewportHeightCss = ref('100dvh')
 const telegramTopInsetPx = ref(0)
 const telegramBottomInsetPx = ref(0)
@@ -76,6 +77,9 @@ watch(showChartApp, (ok) => {
 })
 
 onMounted(() => {
+  if (endpointMissing.value) {
+    console.error('[env] VITE_APP_REST_ENDPOINT is required')
+  }
   const recheck = () => {
     if (import.meta.env.DEV) {
       showChartApp.value = true
@@ -161,6 +165,9 @@ onBeforeUnmount(() => {
       <p class="mt-4 text-pretty text-[15px] leading-relaxed text-slate-400">
         {{ t('app.fallbackDescription') }}
       </p>
+      <p v-if="endpointMissing" class="mt-3 text-sm text-red-300">
+        VITE_APP_REST_ENDPOINT is not configured.
+      </p>
 
       <a
         href="https://t.me/postigator_lab_bot"
@@ -214,6 +221,9 @@ onBeforeUnmount(() => {
         </button>
       </div>
     </div>
+  </div>
+  <div v-else-if="endpointMissing" class="flex min-h-[100dvh] items-center justify-center bg-slate-950 p-6 text-center text-red-200">
+    VITE_APP_REST_ENDPOINT is not configured. Check `.env`.
   </div>
   <ChartApp v-else />
 </template>

@@ -18,6 +18,8 @@ import {
 } from './lib/barChartRaceExplained'
 import { importBarChartRaceCsv } from './lib/importBarChartCsv'
 import { persistLocale, type AppLocale } from './i18n'
+import { ApiError, apiGet, apiPost, getApiBaseUrlOrThrow } from './lib/api'
+import { openInvoice, readyAndExpand } from './lib/telegram'
 
 type RawDataItem = {
   name: string
@@ -42,6 +44,29 @@ type PeriodForm = {
 type ChartRenderSettings = {
   labelLayoutMode: LabelLayoutMode
   labelColor: string
+}
+
+type BackendProfile = {
+  id: number
+  title?: string
+}
+
+type SessionOpenResponse = {
+  user: Record<string, unknown> | null
+  limits: Record<string, unknown> | null
+  profiles: BackendProfile[]
+  active_profile: BackendProfile | null
+}
+
+type PaymentsStarsInvoiceResponse = {
+  invoice_link: string
+}
+
+type PaymentItem = {
+  id?: string | number
+  status?: 'pending' | 'paid' | string
+  amount?: number
+  title?: string
 }
 
 const { t, locale } = useI18n({ useScope: 'global' })
@@ -141,6 +166,26 @@ const isMobileLayout = ref(
 )
 const chartPanelOpen = ref(false)
 const errorMessage = ref('')
+const endpointMissing = ref(false)
+const bootstrapLoading = ref(false)
+const bootstrapError = ref('')
+const sessionData = ref<SessionOpenResponse | null>(null)
+const requestError = ref('')
+const requestRetryable = ref(false)
+const generationLoading = ref(false)
+const generationResult = ref<unknown>(null)
+const generationError = ref('')
+const generatingKind = ref<'today' | 'tomorrow' | 'variant' | ''>('')
+const generateProfileId = ref<number | null>(null)
+const profileTitleInput = ref('New profile')
+const profilePatchTitleInput = ref('')
+const selectedPatchProfileId = ref<number | null>(null)
+const payments = ref<PaymentItem[]>([])
+const paymentLoading = ref(false)
+const paymentAmount = ref(1)
+const paymentTitle = ref('Stars package')
+const paymentDescription = ref('Telegram Stars purchase')
+const paymentState = ref<'idle' | 'pending' | 'paid' | 'cancelled' | 'failed'>('idle')
 const countdown = ref<number | null>(null)
 const isAnimating = ref(false)
 const viewportHeightCss = ref('100dvh')
@@ -179,6 +224,180 @@ const mobilePanelFloatsStyle = computed(() => ({
 let startTimeout: number | null = null
 let countdownInterval: number | null = null
 let postRaceFloatTimer: number | null = null
+let lastRetryAction: (() => Promise<void>) | null = null
+
+function mapApiError(error: unknown): { message: string; retryable: boolean } {
+  if (error instanceof ApiError) {
+    return { message: error.message, retryable: error.retryable }
+  }
+  if (error instanceof Error) {
+    return { message: error.message, retryable: false }
+  }
+  return { message: 'Неизвестная ошибка', retryable: false }
+}
+
+function setRequestErrorFromUnknown(error: unknown) {
+  const normalized = mapApiError(error)
+  requestError.value = normalized.message
+  requestRetryable.value = normalized.retryable
+}
+
+async function loadSession() {
+  bootstrapLoading.value = true
+  bootstrapError.value = ''
+  requestError.value = ''
+  requestRetryable.value = false
+  lastRetryAction = loadSession
+  try {
+    readyAndExpand()
+    const data = await apiPost<SessionOpenResponse, { profile_id: null }>('/api/session/open', {
+      profile_id: null,
+    })
+    sessionData.value = data
+    generateProfileId.value = data.active_profile?.id ?? data.profiles[0]?.id ?? null
+    selectedPatchProfileId.value = data.active_profile?.id ?? data.profiles[0]?.id ?? null
+    profilePatchTitleInput.value = data.active_profile?.title ?? ''
+  } catch (error) {
+    const normalized = mapApiError(error)
+    bootstrapError.value = normalized.message
+    requestRetryable.value = normalized.retryable
+  } finally {
+    bootstrapLoading.value = false
+  }
+}
+
+async function fetchProfiles() {
+  requestError.value = ''
+  requestRetryable.value = false
+  lastRetryAction = fetchProfiles
+  try {
+    const [profiles, activeProfile] = await Promise.all([
+      apiGet<BackendProfile[]>('/api/profile/list'),
+      apiGet<BackendProfile | null>('/api/profile/active'),
+    ])
+    if (!sessionData.value) return
+    sessionData.value = {
+      ...sessionData.value,
+      profiles,
+      active_profile: activeProfile,
+    }
+  } catch (error) {
+    setRequestErrorFromUnknown(error)
+  }
+}
+
+async function createProfile() {
+  if (!profileTitleInput.value.trim()) return
+  requestError.value = ''
+  requestRetryable.value = false
+  lastRetryAction = createProfile
+  try {
+    const profile = await apiPost<BackendProfile, { title: string }>('/api/profile/create', {
+      title: profileTitleInput.value.trim(),
+    })
+    if (!sessionData.value) return
+    sessionData.value = {
+      ...sessionData.value,
+      profiles: [profile, ...sessionData.value.profiles],
+      active_profile: sessionData.value.active_profile ?? profile,
+    }
+    if (!generateProfileId.value) generateProfileId.value = profile.id
+    profileTitleInput.value = ''
+  } catch (error) {
+    setRequestErrorFromUnknown(error)
+  }
+}
+
+async function patchProfile() {
+  const id = selectedPatchProfileId.value
+  if (!id) return
+  requestError.value = ''
+  requestRetryable.value = false
+  lastRetryAction = patchProfile
+  try {
+    const patched = await apiPost<BackendProfile, { title: string }>(`/api/profile/${id}/patch`, {
+      title: profilePatchTitleInput.value.trim(),
+    })
+    if (!sessionData.value) return
+    sessionData.value = {
+      ...sessionData.value,
+      profiles: sessionData.value.profiles.map((item) => (item.id === patched.id ? patched : item)),
+      active_profile:
+        sessionData.value.active_profile?.id === patched.id ? patched : sessionData.value.active_profile,
+    }
+  } catch (error) {
+    setRequestErrorFromUnknown(error)
+  }
+}
+
+async function generate(kind: 'today' | 'tomorrow' | 'variant') {
+  if (!generateProfileId.value) {
+    generationError.value = 'Выберите profile_id перед генерацией'
+    return
+  }
+  generationLoading.value = true
+  generatingKind.value = kind
+  generationError.value = ''
+  generationResult.value = null
+  requestError.value = ''
+  requestRetryable.value = false
+  lastRetryAction = () => generate(kind)
+  try {
+    const data = await apiPost<unknown, { profile_id: number }>(`/api/generate/${kind}`, {
+      profile_id: generateProfileId.value,
+    })
+    generationResult.value = data
+  } catch (error) {
+    const normalized = mapApiError(error)
+    generationError.value = normalized.message
+    requestRetryable.value = normalized.retryable
+  } finally {
+    generationLoading.value = false
+    generatingKind.value = ''
+  }
+}
+
+async function loadPayments() {
+  requestError.value = ''
+  requestRetryable.value = false
+  lastRetryAction = loadPayments
+  try {
+    payments.value = await apiGet<PaymentItem[]>('/api/payments/stars/list')
+  } catch (error) {
+    setRequestErrorFromUnknown(error)
+  }
+}
+
+async function buyStars() {
+  paymentLoading.value = true
+  paymentState.value = 'pending'
+  requestError.value = ''
+  requestRetryable.value = false
+  lastRetryAction = buyStars
+  try {
+    const { invoice_link } = await apiPost<
+      PaymentsStarsInvoiceResponse,
+      { amount: number; title: string; description: string }
+    >('/api/payments/stars/invoice', {
+      amount: paymentAmount.value,
+      title: paymentTitle.value.trim(),
+      description: paymentDescription.value.trim(),
+    })
+    const invoiceStatus = await openInvoice(invoice_link)
+    paymentState.value = invoiceStatus
+    await loadPayments()
+  } catch (error) {
+    paymentState.value = 'failed'
+    setRequestErrorFromUnknown(error)
+  } finally {
+    paymentLoading.value = false
+  }
+}
+
+async function retryLastRequest() {
+  if (!lastRetryAction) return
+  await lastRetryAction()
+}
 
 function syncTelegramViewportInsets() {
   try {
@@ -737,6 +956,14 @@ watch([chartPanelOpen, isMobileLayout], () => {
 })
 
 onMounted(() => {
+  try {
+    getApiBaseUrlOrThrow()
+  } catch (error) {
+    endpointMissing.value = true
+    const normalized = mapApiError(error)
+    bootstrapError.value = normalized.message
+    console.error('[env] VITE_APP_REST_ENDPOINT is required')
+  }
   syncMobileLayout()
   syncTelegramViewportInsets()
   renderPreviewChart(collectDataForPreview())
@@ -748,6 +975,9 @@ onMounted(() => {
     /* no-op */
   }
   scheduleSyncTelegramBackButton()
+  if (!endpointMissing.value) {
+    void loadSession()
+  }
 })
 </script>
 
@@ -780,6 +1010,118 @@ onMounted(() => {
             @click="setLocale('en')"
           >
             EN
+          </button>
+        </div>
+
+        <div class="mb-3 rounded-lg border border-slate-200 bg-slate-50 p-3 sm:mb-4">
+          <p class="text-xs font-semibold text-slate-800 sm:text-sm">Telegram API bootstrap</p>
+          <p v-if="endpointMissing" class="mt-2 text-xs text-red-700">
+            VITE_APP_REST_ENDPOINT не задан. Проверьте переменные окружения.
+          </p>
+          <p v-else-if="bootstrapLoading" class="mt-2 text-xs text-slate-600">Открываем сессию...</p>
+          <p v-else-if="bootstrapError" class="mt-2 text-xs text-red-700">{{ bootstrapError }}</p>
+          <div v-else-if="sessionData" class="mt-2 text-xs text-slate-700">
+            User: {{ sessionData.user ? 'ok' : 'empty' }}, profiles: {{ sessionData.profiles.length }}
+          </div>
+          <button
+            type="button"
+            class="mt-2 rounded-md border border-slate-300 bg-white px-3 py-1 text-xs hover:bg-slate-100"
+            @click="loadSession"
+          >
+            Bootstrap session
+          </button>
+        </div>
+
+        <div class="mb-3 rounded-lg border border-slate-200 p-3 sm:mb-4">
+          <p class="mb-2 text-xs font-semibold text-slate-800 sm:text-sm">Profiles API</p>
+          <div class="flex flex-wrap items-center gap-2">
+            <button type="button" class="rounded-md border border-slate-300 px-2 py-1 text-xs" @click="fetchProfiles">
+              GET /api/profile/list + active
+            </button>
+            <input v-model="profileTitleInput" type="text" class="rounded-md border border-slate-300 px-2 py-1 text-xs" placeholder="profile title" />
+            <button type="button" class="rounded-md border border-slate-300 px-2 py-1 text-xs" @click="createProfile">
+              POST /api/profile/create
+            </button>
+          </div>
+          <div class="mt-2 flex flex-wrap items-center gap-2">
+            <input
+              v-model.number="selectedPatchProfileId"
+              type="number"
+              class="w-28 rounded-md border border-slate-300 px-2 py-1 text-xs"
+              placeholder="profile id"
+            />
+            <input v-model="profilePatchTitleInput" type="text" class="rounded-md border border-slate-300 px-2 py-1 text-xs" placeholder="new title" />
+            <button type="button" class="rounded-md border border-slate-300 px-2 py-1 text-xs" @click="patchProfile">
+              POST /api/profile/{id}/patch
+            </button>
+          </div>
+        </div>
+
+        <div class="mb-3 rounded-lg border border-slate-200 p-3 sm:mb-4">
+          <p class="mb-2 text-xs font-semibold text-slate-800 sm:text-sm">Generate API</p>
+          <div class="mb-2 flex flex-wrap items-center gap-2">
+            <input
+              v-model.number="generateProfileId"
+              type="number"
+              class="w-28 rounded-md border border-slate-300 px-2 py-1 text-xs"
+              placeholder="profile id"
+            />
+            <button
+              type="button"
+              class="rounded-md border border-slate-300 px-2 py-1 text-xs"
+              :disabled="generationLoading"
+              @click="generate('today')"
+            >
+              POST /api/generate/today
+            </button>
+            <button
+              type="button"
+              class="rounded-md border border-slate-300 px-2 py-1 text-xs"
+              :disabled="generationLoading"
+              @click="generate('tomorrow')"
+            >
+              POST /api/generate/tomorrow
+            </button>
+            <button
+              type="button"
+              class="rounded-md border border-slate-300 px-2 py-1 text-xs"
+              :disabled="generationLoading"
+              @click="generate('variant')"
+            >
+              POST /api/generate/variant
+            </button>
+          </div>
+          <p v-if="generationLoading" class="text-xs text-slate-600">loading ({{ generatingKind }})...</p>
+          <p v-else-if="generationError" class="text-xs text-red-700">{{ generationError }}</p>
+          <p v-else-if="generationResult" class="text-xs text-emerald-700">success: posts получены</p>
+        </div>
+
+        <div class="mb-3 rounded-lg border border-slate-200 p-3 sm:mb-4">
+          <p class="mb-2 text-xs font-semibold text-slate-800 sm:text-sm">Telegram Stars payment</p>
+          <div class="mb-2 flex flex-wrap items-center gap-2">
+            <input v-model.number="paymentAmount" type="number" min="1" class="w-20 rounded-md border border-slate-300 px-2 py-1 text-xs" placeholder="amount" />
+            <input v-model="paymentTitle" type="text" class="rounded-md border border-slate-300 px-2 py-1 text-xs" placeholder="title" />
+            <input v-model="paymentDescription" type="text" class="rounded-md border border-slate-300 px-2 py-1 text-xs" placeholder="description" />
+            <button type="button" class="rounded-md border border-slate-300 px-2 py-1 text-xs" :disabled="paymentLoading" @click="buyStars">
+              Buy Stars
+            </button>
+            <button type="button" class="rounded-md border border-slate-300 px-2 py-1 text-xs" @click="loadPayments">
+              Refresh payments
+            </button>
+          </div>
+          <p class="text-xs text-slate-700">Invoice state: {{ paymentState }}</p>
+          <p class="text-xs text-slate-700">Payments in list: {{ payments.length }}</p>
+        </div>
+
+        <div v-if="requestError" class="mb-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 sm:mb-4">
+          {{ requestError }}
+          <button
+            v-if="requestRetryable"
+            type="button"
+            class="ml-2 rounded border border-red-300 bg-white px-2 py-0.5 text-[11px]"
+            @click="retryLastRequest"
+          >
+            Retry
           </button>
         </div>
 
