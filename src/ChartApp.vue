@@ -445,9 +445,16 @@ const hasMinimumItems = computed(() => names.value.length >= 2)
 const playDisabledReason = computed(() => {
   if (!hasValidChartTitle.value) return t('chart.playDisabledTitleRequired')
   if (!hasMinimumItems.value) return t('chart.playDisabledNeedTwoItems')
+  if (sessionData.value !== null && availableGenerations.value <= 0) {
+    return t('chart.playDisabledNoGenerations')
+  }
   return ''
 })
 const canStartPlay = computed(() => playDisabledReason.value.length === 0)
+
+const playReminderDoneDisabled = computed(
+  () => playDebitLoading.value || (sessionData.value !== null && availableGenerations.value <= 0),
+)
 
 /** Родная «Назад» в шапке Mini App (web_app_setup_back_button с 6.1) */
 function canUseTelegramNativeBackButton(): boolean {
@@ -898,6 +905,9 @@ function pickDebitSource(): 'free_balance' | 'balance' {
 const confirmPlayReminder = async () => {
   if (!pendingPlayData.value) {
     closePlayReminder()
+    return
+  }
+  if (sessionData.value !== null && availableGenerations.value <= 0) {
     return
   }
   playDebitError.value = ''
@@ -1622,6 +1632,18 @@ onMounted(() => {
           <p class="mt-2 text-sm leading-relaxed text-slate-600">
             {{ t('chart.playReminderText') }}
           </p>
+          <p
+            v-if="pickDebitSource() === 'free_balance'"
+            class="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800"
+          >
+            {{ t('chart.playDebitPreviewFreeLine', { free: freeBalance }) }}
+          </p>
+          <p
+            v-else
+            class="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800"
+          >
+            {{ t('chart.playDebitPreviewPaidLine', { paid: paidBalance }) }}
+          </p>
           <p v-if="playDebitError" class="mt-2 text-sm text-red-600">
             {{ playDebitError }}
           </p>
@@ -1637,7 +1659,7 @@ onMounted(() => {
             <button
               type="button"
               class="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-400 sm:text-sm"
-              :disabled="playDebitLoading"
+              :disabled="playReminderDoneDisabled"
               @click="confirmPlayReminder"
             >
               {{ t('chart.playReminderDone') }}
