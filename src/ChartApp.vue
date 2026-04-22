@@ -66,7 +66,7 @@ type TopupPackage = {
   stars: number
 }
 
-type TopupPackagesResponse = TopupPackage[] | { items?: TopupPackage[] }
+type TopupPackagesResponse = TopupPackage[] | { items?: TopupPackage[]; packages?: TopupPackage[] }
 
 type TopupInvoiceResponse = {
   invoice_link: string
@@ -262,9 +262,11 @@ async function loadTopupPackages() {
     const data = await apiGet<TopupPackagesResponse>('/api/topup/packages')
     const list = Array.isArray(data)
       ? data
-      : Array.isArray(data?.items)
-        ? data.items
-        : []
+      : Array.isArray(data?.packages)
+        ? data.packages
+        : Array.isArray(data?.items)
+          ? data.items
+          : []
     const normalized = list
       .map((item) => ({
         units: Number(item.units),
