@@ -84,6 +84,13 @@ type TopupPayment = {
   created_at?: string
 }
 
+type BalanceDebitResponse = {
+  debited_from: 'balance' | 'free_balance'
+  amount: number
+  balance: number
+  free_balance: number
+}
+
 const { t, locale } = useI18n({ useScope: 'global' })
 
 function setLocale(next: AppLocale) {
@@ -331,6 +338,9 @@ async function buyTopup(pkg: TopupPackage) {
     topupStatus.value = status
     await loadSession()
     await loadTopupPayments(20)
+    if (status === 'paid') {
+      closeGenerationsDrawer()
+    }
   } catch (error) {
     topupStatus.value = 'failed'
     topupError.value = mapApiError(error).message
@@ -428,6 +438,8 @@ function generationAmountLabel(amount: number): string {
 }
 const playReminderOpen = ref(false)
 const pendingPlayData = ref<RawDataItem[] | null>(null)
+const playDebitError = ref('')
+const playDebitLoading = ref(false)
 const hasValidChartTitle = computed(() => chartTitle.value.trim().length > 0)
 const hasMinimumItems = computed(() => names.value.length >= 2)
 const playDisabledReason = computed(() => {
@@ -873,16 +885,59 @@ const startPlayWithData = (data: RawDataItem[]) => {
 const closePlayReminder = () => {
   playReminderOpen.value = false
   pendingPlayData.value = null
+  playDebitError.value = ''
+  playDebitLoading.value = false
 }
 
-const confirmPlayReminder = () => {
+function pickDebitSource(): 'free_balance' | 'balance' {
+  const free = Number(sessionData.value?.user?.free_balance ?? 0)
+  if (Number.isFinite(free) && free > 0) return 'free_balance'
+  return 'balance'
+}
+
+const confirmPlayReminder = async () => {
   if (!pendingPlayData.value) {
     closePlayReminder()
     return
   }
-  const data = pendingPlayData.value
-  closePlayReminder()
-  startPlayWithData(data)
+  playDebitError.value = ''
+  playDebitLoading.value = true
+  try {
+    const source = pickDebitSource()
+    const data = await apiPost<BalanceDebitResponse, { source: 'free_balance' | 'balance' }>(
+      '/api/balance/debit',
+      { source },
+    )
+    if (sessionData.value) {
+      sessionData.value = {
+        ...sessionData.value,
+        user: sessionData.value.user
+          ? {
+              ...sessionData.value.user,
+              balance: data.balance,
+              free_balance: data.free_balance,
+            }
+          : {
+              balance: data.balance,
+              free_balance: data.free_balance,
+            },
+      }
+    }
+    const playData = pendingPlayData.value
+    closePlayReminder()
+    startPlayWithData(playData)
+  } catch (error) {
+    const normalized = mapApiError(error)
+    const detail = error instanceof ApiError ? error.detail : ''
+    const msg = (detail || normalized.message).toLowerCase()
+    if (msg.includes('insufficient')) {
+      playDebitError.value = t('chart.playDebitInsufficient')
+    } else {
+      playDebitError.value = normalized.message
+    }
+  } finally {
+    playDebitLoading.value = false
+  }
 }
 
 const onPlay = () => {
@@ -893,6 +948,7 @@ const onPlay = () => {
   const data = collectDataFromForm()
   if (!data) return
   pendingPlayData.value = data
+  playDebitError.value = ''
   playReminderOpen.value = true
 }
 
@@ -1566,17 +1622,22 @@ onMounted(() => {
           <p class="mt-2 text-sm leading-relaxed text-slate-600">
             {{ t('chart.playReminderText') }}
           </p>
+          <p v-if="playDebitError" class="mt-2 text-sm text-red-600">
+            {{ playDebitError }}
+          </p>
           <div class="mt-4 flex items-center justify-end gap-2">
             <button
               type="button"
               class="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:bg-slate-50 sm:text-sm"
+              :disabled="playDebitLoading"
               @click="closePlayReminder"
             >
               {{ t('chart.playReminderCancel') }}
             </button>
             <button
               type="button"
-              class="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-blue-700 sm:text-sm"
+              class="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-400 sm:text-sm"
+              :disabled="playDebitLoading"
               @click="confirmPlayReminder"
             >
               {{ t('chart.playReminderDone') }}
