@@ -101,30 +101,33 @@ const isAnimating = ref(false)
 const viewportHeightCss = ref('100dvh')
 const telegramTopInsetPx = ref(0)
 const telegramBottomInsetPx = ref(0)
+const tgTopInsetCss = 'calc(var(--tg-safe-area-inset-top, 0px) + var(--tg-content-safe-area-inset-top, 0px))'
+const tgBottomInsetCss =
+  'calc(var(--tg-safe-area-inset-bottom, 0px) + var(--tg-content-safe-area-inset-bottom, 0px))'
 
 const mainContainerStyle = computed(() => ({
   minHeight: viewportHeightCss.value,
-  paddingTop: `max(0.75rem, env(safe-area-inset-top), ${telegramTopInsetPx.value}px)`,
-  paddingBottom: `max(5rem, env(safe-area-inset-bottom), ${telegramBottomInsetPx.value}px)`,
+  paddingTop: `max(0.75rem, env(safe-area-inset-top), ${tgTopInsetCss}, ${telegramTopInsetPx.value}px)`,
+  paddingBottom: `max(5rem, env(safe-area-inset-bottom), ${tgBottomInsetCss}, ${telegramBottomInsetPx.value}px)`,
   paddingLeft: 'max(0.75rem, env(safe-area-inset-left))',
   paddingRight: 'max(0.75rem, env(safe-area-inset-right))',
 }))
 
 const mobileFabStyle = computed(() => ({
-  bottom: `max(0.75rem, env(safe-area-inset-bottom), ${telegramBottomInsetPx.value}px)`,
+  bottom: `max(0.75rem, env(safe-area-inset-bottom), ${tgBottomInsetCss}, ${telegramBottomInsetPx.value}px)`,
   right: 'max(0.75rem, env(safe-area-inset-right))',
 }))
 
 const mobilePanelHeaderStyle = computed(() => ({
-  paddingTop: `max(0.5rem, env(safe-area-inset-top), ${telegramTopInsetPx.value}px)`,
+  paddingTop: `max(0.5rem, env(safe-area-inset-top), ${tgTopInsetCss}, ${telegramTopInsetPx.value}px)`,
 }))
 
 const mobilePanelBodyStyle = computed(() => ({
-  paddingBottom: `max(4.75rem, env(safe-area-inset-bottom), ${telegramBottomInsetPx.value + 8}px)`,
+  paddingBottom: `max(4.75rem, env(safe-area-inset-bottom), ${tgBottomInsetCss}, ${telegramBottomInsetPx.value + 8}px)`,
 }))
 
 const mobilePanelFloatsStyle = computed(() => ({
-  bottom: `max(0.5rem, env(safe-area-inset-bottom), ${telegramBottomInsetPx.value}px)`,
+  bottom: `max(0.5rem, env(safe-area-inset-bottom), ${tgBottomInsetCss}, ${telegramBottomInsetPx.value}px)`,
 }))
 
 let startTimeout: number | null = null
@@ -138,14 +141,16 @@ function syncTelegramViewportInsets() {
       viewportStableHeight?: number
       safeAreaInset?: { top?: number; bottom?: number }
       contentSafeAreaInset?: { top?: number; bottom?: number }
+      safe_area_inset?: { top?: number; bottom?: number }
+      content_safe_area_inset?: { top?: number; bottom?: number }
     }
     const stableH = Number(app.viewportStableHeight)
     const currentH = Number(app.viewportHeight)
     const h = Number.isFinite(stableH) && stableH > 0 ? stableH : currentH
     viewportHeightCss.value = Number.isFinite(h) && h > 0 ? `${Math.round(h)}px` : '100dvh'
 
-    const safe = app.safeAreaInset ?? {}
-    const content = app.contentSafeAreaInset ?? {}
+    const safe = app.safeAreaInset ?? app.safe_area_inset ?? {}
+    const content = app.contentSafeAreaInset ?? app.content_safe_area_inset ?? {}
     telegramTopInsetPx.value = Math.max(0, Number(safe.top ?? 0) + Number(content.top ?? 0))
     telegramBottomInsetPx.value = Math.max(
       0,

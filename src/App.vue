@@ -13,11 +13,14 @@ const showChartApp = ref(detectTelegramMiniApp())
 const viewportHeightCss = ref('100dvh')
 const telegramTopInsetPx = ref(0)
 const telegramBottomInsetPx = ref(0)
+const tgTopInsetCss = 'calc(var(--tg-safe-area-inset-top, 0px) + var(--tg-content-safe-area-inset-top, 0px))'
+const tgBottomInsetCss =
+  'calc(var(--tg-safe-area-inset-bottom, 0px) + var(--tg-content-safe-area-inset-bottom, 0px))'
 
 const fallbackContainerStyle = computed(() => ({
   minHeight: viewportHeightCss.value,
-  paddingTop: `max(2rem, env(safe-area-inset-top), ${telegramTopInsetPx.value}px)`,
-  paddingBottom: `max(2rem, env(safe-area-inset-bottom), ${telegramBottomInsetPx.value}px)`,
+  paddingTop: `max(2rem, env(safe-area-inset-top), ${tgTopInsetCss}, ${telegramTopInsetPx.value}px)`,
+  paddingBottom: `max(2rem, env(safe-area-inset-bottom), ${tgBottomInsetCss}, ${telegramBottomInsetPx.value}px)`,
 }))
 
 function syncTelegramViewportInsets() {
@@ -27,14 +30,16 @@ function syncTelegramViewportInsets() {
       viewportStableHeight?: number
       safeAreaInset?: { top?: number; bottom?: number }
       contentSafeAreaInset?: { top?: number; bottom?: number }
+      safe_area_inset?: { top?: number; bottom?: number }
+      content_safe_area_inset?: { top?: number; bottom?: number }
     }
     const stableH = Number(app.viewportStableHeight)
     const currentH = Number(app.viewportHeight)
     const h = Number.isFinite(stableH) && stableH > 0 ? stableH : currentH
     viewportHeightCss.value = Number.isFinite(h) && h > 0 ? `${Math.round(h)}px` : '100dvh'
 
-    const safe = app.safeAreaInset ?? {}
-    const content = app.contentSafeAreaInset ?? {}
+    const safe = app.safeAreaInset ?? app.safe_area_inset ?? {}
+    const content = app.contentSafeAreaInset ?? app.content_safe_area_inset ?? {}
     telegramTopInsetPx.value = Math.max(0, Number(safe.top ?? 0) + Number(content.top ?? 0))
     telegramBottomInsetPx.value = Math.max(
       0,
