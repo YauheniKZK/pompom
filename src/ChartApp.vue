@@ -53,6 +53,7 @@ type BackendProfile = {
 
 type SessionOpenResponse = {
   user: {
+    id?: number | string
     balance?: number | string
     free_balance?: number | string
   } | null
@@ -360,6 +361,23 @@ const availableGenerations = computed(() => {
   const free = Number(sessionData.value?.user?.free_balance ?? 0)
   const total = (Number.isFinite(paid) ? paid : 0) + (Number.isFinite(free) ? free : 0)
   return total >= 0 ? Math.floor(total) : 0
+})
+
+const isAdminUser = computed(() => {
+  const rawAdmins = String(import.meta.env.VITE_APP_ADMINS_IDS ?? '').trim()
+  if (!rawAdmins) return false
+  const userId = String(sessionData.value?.user?.id ?? '').trim()
+  if (!userId) return false
+  const adminIds = rawAdmins
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean)
+  return adminIds.includes(userId)
+})
+
+const visibleTopupPackages = computed(() => {
+  if (isAdminUser.value) return topupPackages.value
+  return topupPackages.value.filter((pack) => !(pack.units === 1 && pack.stars === 1))
 })
 
 const paidBalance = computed(() => {
@@ -1456,9 +1474,9 @@ onMounted(() => {
 
         <div class="space-y-2">
           <p v-if="topupPackagesLoading" class="text-xs text-slate-500">{{ t('chart.topupLoadingPackages') }}</p>
-          <p v-else-if="!topupPackages.length" class="text-xs text-slate-500">{{ t('chart.topupNoPackages') }}</p>
+          <p v-else-if="!visibleTopupPackages.length" class="text-xs text-slate-500">{{ t('chart.topupNoPackages') }}</p>
           <div
-            v-for="pack in topupPackages"
+            v-for="pack in visibleTopupPackages"
             :key="`${pack.units}-${pack.stars}`"
             class="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-3 py-2"
           >
