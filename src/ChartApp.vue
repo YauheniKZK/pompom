@@ -299,10 +299,11 @@ async function buyTopup(pkg: TopupPackage) {
   topupError.value = ''
   topupStatus.value = 'pending'
   try {
-    const invoice = await apiPost<TopupInvoiceResponse, { units: number; target_field: 'balance' }>(
+    const invoice = await apiPost<TopupInvoiceResponse, { units: number; stars: number; target_field: 'balance' }>(
       '/api/topup/invoice',
       {
         units: pkg.units,
+        stars: pkg.stars,
         target_field: 'balance',
       },
     )
