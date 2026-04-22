@@ -260,13 +260,18 @@ async function loadTopupPackages() {
   topupError.value = ''
   try {
     const data = await apiGet<TopupPackagesResponse>('/api/topup/packages')
-    const list = Array.isArray(data) ? data : Array.isArray(data?.items) ? data.items : []
-    topupPackages.value = list
+    const list = Array.isArray(data)
+      ? data
+      : Array.isArray(data?.items)
+        ? data.items
+        : []
+    const normalized = list
       .map((item) => ({
         units: Number(item.units),
         stars: Number(item.stars),
       }))
       .filter((item) => Number.isFinite(item.units) && item.units > 0 && Number.isFinite(item.stars) && item.stars > 0)
+    topupPackages.value = normalized
   } catch (error) {
     topupError.value = mapApiError(error).message
   } finally {
