@@ -76,6 +76,8 @@ export const messages = {
       openChart: 'Открыть график',
       close: 'Закрыть',
       startAnimation: 'Запустить анимацию',
+      playDisabledTitleRequired: 'Заполните название графика, чтобы запустить Play.',
+      playDisabledNeedTwoItems: 'Нужно минимум 2 элемента в графике для запуска Play.',
       errors: {
         enterItem: 'Введите название элемента.',
         duplicateItem: 'Такое название уже существует.',
@@ -143,6 +145,8 @@ export const messages = {
       openChart: 'Open chart',
       close: 'Close',
       startAnimation: 'Start animation',
+      playDisabledTitleRequired: 'Enter a chart title to enable Play.',
+      playDisabledNeedTwoItems: 'At least 2 items are required to enable Play.',
       errors: {
         enterItem: 'Enter an item name.',
         duplicateItem: 'This item name already exists.',

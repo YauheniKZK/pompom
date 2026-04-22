@@ -217,6 +217,14 @@ const mobileFloatActionsReady = ref(true)
 const showMobileChartFloats = computed(
   () => showChartPlay.value && mobileFloatActionsReady.value,
 )
+const hasValidChartTitle = computed(() => chartTitle.value.trim().length > 0)
+const hasMinimumItems = computed(() => names.value.length >= 2)
+const playDisabledReason = computed(() => {
+  if (!hasValidChartTitle.value) return t('chart.playDisabledTitleRequired')
+  if (!hasMinimumItems.value) return t('chart.playDisabledNeedTwoItems')
+  return ''
+})
+const canStartPlay = computed(() => playDisabledReason.value.length === 0)
 
 /** Родная «Назад» в шапке Mini App (web_app_setup_back_button с 6.1) */
 function canUseTelegramNativeBackButton(): boolean {
@@ -603,6 +611,10 @@ const runBarChartRace = async (rawData: RawDataItem[], settings: ChartRenderSett
 }
 
 const onPlay = () => {
+  if (!canStartPlay.value) {
+    errorMessage.value = playDisabledReason.value
+    return
+  }
   const data = collectDataFromForm()
   if (!data) return
 
@@ -958,6 +970,12 @@ onMounted(() => {
         <p v-if="errorMessage" class="mb-3 rounded-md bg-red-50 px-2.5 py-1.5 text-xs text-red-700 sm:mb-4 sm:px-3 sm:py-2 sm:text-sm">
           {{ errorMessage }}
         </p>
+        <p
+          v-else-if="!canStartPlay"
+          class="mb-3 rounded-md bg-amber-50 px-2.5 py-1.5 text-xs text-amber-700 sm:mb-4 sm:px-3 sm:py-2 sm:text-sm"
+        >
+          {{ playDisabledReason }}
+        </p>
 
         <div
           v-if="countdown !== null"
@@ -988,7 +1006,9 @@ onMounted(() => {
           <button
             v-if="showChartPlay"
             type="button"
-            class="shrink-0 rounded-full bg-blue-600 px-4 py-2 text-xs font-semibold text-white shadow-md transition hover:bg-blue-700 active:scale-[0.98] sm:px-5 sm:py-2.5 sm:text-sm"
+            :disabled="!canStartPlay"
+            :title="!canStartPlay ? playDisabledReason : undefined"
+            class="shrink-0 rounded-full bg-blue-600 px-4 py-2 text-xs font-semibold text-white shadow-md transition hover:bg-blue-700 active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-600 disabled:shadow-none disabled:hover:bg-slate-300 sm:px-5 sm:py-2.5 sm:text-sm"
             @click="onPlay"
           >
             {{ t('chart.play') }}
@@ -1115,7 +1135,10 @@ onMounted(() => {
               </button>
               <button
                 type="button"
+                :disabled="!canStartPlay"
+                :title="!canStartPlay ? playDisabledReason : undefined"
                 class="flex h-14 w-14 items-center justify-center rounded-full bg-blue-600 text-white shadow-lg ring-2 ring-blue-500/30 transition hover:bg-blue-700 active:scale-95 sm:h-16 sm:w-16"
+                :class="!canStartPlay ? 'cursor-not-allowed bg-slate-300 text-slate-600 ring-slate-300/40 hover:bg-slate-300' : ''"
                 :aria-label="t('chart.startAnimation')"
                 @click="onPlay"
               >
