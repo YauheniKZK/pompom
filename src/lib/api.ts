@@ -40,6 +40,9 @@ function normalizeError(status: number, detail?: string): ApiError {
   if (status === 401) {
     return new ApiError('Откройте Mini App внутри Telegram', { status, detail, retryable: false })
   }
+  if (status === 400) {
+    return new ApiError(detail || 'Неверный пакет пополнения', { status, detail, retryable: false })
+  }
   if (status === 403) {
     return new ApiError(detail || 'Доступ ограничен', { status, detail, retryable: false })
   }

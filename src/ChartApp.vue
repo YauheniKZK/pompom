@@ -18,8 +18,8 @@ import {
 } from './lib/barChartRaceExplained'
 import { importBarChartRaceCsv } from './lib/importBarChartCsv'
 import { persistLocale, type AppLocale } from './i18n'
-import { ApiError, apiPost, getApiBaseUrlOrThrow } from './lib/api'
-import { readyAndExpand } from './lib/telegram'
+import { ApiError, apiGet, apiPost, getApiBaseUrlOrThrow } from './lib/api'
+import { openInvoice, type InvoiceStatus, readyAndExpand } from './lib/telegram'
 
 type RawDataItem = {
   name: string
@@ -52,10 +52,33 @@ type BackendProfile = {
 }
 
 type SessionOpenResponse = {
-  user: Record<string, unknown> | null
+  user: {
+    balance?: number | string
+    free_balance?: number | string
+  } | null
   limits: Record<string, unknown> | null
   profiles: BackendProfile[]
   active_profile: BackendProfile | null
+}
+
+type TopupPackage = {
+  units: number
+  stars: number
+}
+
+type TopupPackagesResponse = TopupPackage[] | { items?: TopupPackage[] }
+
+type TopupInvoiceResponse = {
+  invoice_link: string
+}
+
+type TopupPayment = {
+  id?: number | string
+  status?: string
+  units?: number
+  stars?: number
+  target_field?: 'balance' | 'free_balance' | string
+  created_at?: string
 }
 
 const { t, locale } = useI18n({ useScope: 'global' })
@@ -159,9 +182,14 @@ const endpointMissing = ref(false)
 const bootstrapLoading = ref(false)
 const bootstrapError = ref('')
 const sessionData = ref<SessionOpenResponse | null>(null)
-const generateProfileId = ref<number | null>(null)
-const profilePatchTitleInput = ref('')
-const selectedPatchProfileId = ref<number | null>(null)
+const topupPackages = ref<TopupPackage[]>([])
+const topupPayments = ref<TopupPayment[]>([])
+const topupPackagesLoading = ref(false)
+const topupActionLoading = ref(false)
+const topupPaymentsLoading = ref(false)
+const topupError = ref('')
+const topupStatus = ref<'idle' | InvoiceStatus>('idle')
+const selectedTopupField = ref<'balance' | 'free_balance'>('balance')
 const countdown = ref<number | null>(null)
 const isAnimating = ref(false)
 const viewportHeightCss = ref('100dvh')
@@ -220,14 +248,66 @@ async function loadSession() {
       profile_id: null,
     })
     sessionData.value = data
-    generateProfileId.value = data.active_profile?.id ?? data.profiles[0]?.id ?? null
-    selectedPatchProfileId.value = data.active_profile?.id ?? data.profiles[0]?.id ?? null
-    profilePatchTitleInput.value = data.active_profile?.title ?? ''
   } catch (error) {
     const normalized = mapApiError(error)
     bootstrapError.value = normalized.message
   } finally {
     bootstrapLoading.value = false
+  }
+}
+
+async function loadTopupPackages() {
+  topupPackagesLoading.value = true
+  topupError.value = ''
+  try {
+    const data = await apiGet<TopupPackagesResponse>('/api/topup/packages')
+    const list = Array.isArray(data) ? data : Array.isArray(data?.items) ? data.items : []
+    topupPackages.value = list
+      .map((item) => ({
+        units: Number(item.units),
+        stars: Number(item.stars),
+      }))
+      .filter((item) => Number.isFinite(item.units) && item.units > 0 && Number.isFinite(item.stars) && item.stars > 0)
+  } catch (error) {
+    topupError.value = mapApiError(error).message
+  } finally {
+    topupPackagesLoading.value = false
+  }
+}
+
+async function loadTopupPayments(limit = 20) {
+  topupPaymentsLoading.value = true
+  try {
+    const data = await apiGet<TopupPayment[]>('/api/topup/payments', { limit })
+    topupPayments.value = Array.isArray(data) ? data : []
+  } catch (error) {
+    topupError.value = mapApiError(error).message
+  } finally {
+    topupPaymentsLoading.value = false
+  }
+}
+
+async function buyTopup(pkg: TopupPackage) {
+  topupActionLoading.value = true
+  topupError.value = ''
+  topupStatus.value = 'pending'
+  try {
+    const invoice = await apiPost<TopupInvoiceResponse, { units: number; target_field: 'balance' | 'free_balance' }>(
+      '/api/topup/invoice',
+      {
+        units: pkg.units,
+        target_field: selectedTopupField.value,
+      },
+    )
+    const status = await openInvoice(invoice.invoice_link)
+    topupStatus.value = status
+    await loadSession()
+    await loadTopupPayments(20)
+  } catch (error) {
+    topupStatus.value = 'failed'
+    topupError.value = mapApiError(error).message
+  } finally {
+    topupActionLoading.value = false
   }
 }
 
@@ -268,6 +348,37 @@ const mobileFloatActionsReady = ref(true)
 const showMobileChartFloats = computed(
   () => showChartPlay.value && mobileFloatActionsReady.value,
 )
+const generationsDrawerOpen = ref(false)
+const availableGenerations = computed(() => {
+  const paid = Number(sessionData.value?.user?.balance ?? 0)
+  const free = Number(sessionData.value?.user?.free_balance ?? 0)
+  const total = (Number.isFinite(paid) ? paid : 0) + (Number.isFinite(free) ? free : 0)
+  return total >= 0 ? Math.floor(total) : 0
+})
+
+const paidBalance = computed(() => {
+  const value = Number(sessionData.value?.user?.balance ?? 0)
+  return Number.isFinite(value) && value >= 0 ? Math.floor(value) : 0
+})
+
+const freeBalance = computed(() => {
+  const value = Number(sessionData.value?.user?.free_balance ?? 0)
+  return Number.isFinite(value) && value >= 0 ? Math.floor(value) : 0
+})
+
+function generationAmountLabel(amount: number): string {
+  if (locale.value === 'ru') {
+    const mod10 = amount % 10
+    const mod100 = amount % 100
+    if (mod10 === 1 && mod100 !== 11) return `${amount} ${t('chart.generationUnitOne')}`
+    if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) {
+      return `${amount} ${t('chart.generationUnitFew')}`
+    }
+    return `${amount} ${t('chart.generationUnitMany')}`
+  }
+
+  return `${amount} ${amount === 1 ? t('chart.generationUnitOne') : t('chart.generationUnitMany')}`
+}
 const playReminderOpen = ref(false)
 const pendingPlayData = ref<RawDataItem[] | null>(null)
 const hasValidChartTitle = computed(() => chartTitle.value.trim().length > 0)
@@ -738,6 +849,18 @@ const onPlay = () => {
   playReminderOpen.value = true
 }
 
+const openGenerationsDrawer = () => {
+  generationsDrawerOpen.value = true
+  if (!topupPackages.value.length) {
+    void loadTopupPackages()
+  }
+  void loadTopupPayments(20)
+}
+
+const closeGenerationsDrawer = () => {
+  generationsDrawerOpen.value = false
+}
+
 onBeforeUnmount(() => {
   raceGeneration += 1
   clearTimers()
@@ -809,6 +932,7 @@ onMounted(() => {
   scheduleSyncTelegramBackButton()
   if (!endpointMissing.value) {
     void loadSession()
+    void loadTopupPackages()
   }
 })
 </script>
@@ -825,23 +949,40 @@ onMounted(() => {
         <h1 class="mb-3 break-words text-xl font-bold tracking-tight sm:mb-4 sm:text-2xl">
           {{ t('chart.settingsTitle') }}
         </h1>
-        <div class="mb-3 inline-flex items-center gap-1 rounded-lg border border-slate-300 bg-white p-1 text-xs sm:mb-4">
-          <span class="px-2 text-slate-600">{{ t('language') }}</span>
+        <div class="mb-3 flex items-center justify-between gap-2 sm:mb-4">
+          <div class="inline-flex items-center gap-1 rounded-lg border border-slate-300 bg-white p-1 text-xs">
+            <span class="px-2 text-slate-600">{{ t('language') }}</span>
+            <button
+              type="button"
+              class="rounded px-2.5 py-1 transition"
+              :class="locale === 'ru' ? 'bg-slate-800 text-white' : 'text-slate-700 hover:bg-slate-100'"
+              @click="setLocale('ru')"
+            >
+              RU
+            </button>
+            <button
+              type="button"
+              class="rounded px-2.5 py-1 transition"
+              :class="locale === 'en' ? 'bg-slate-800 text-white' : 'text-slate-700 hover:bg-slate-100'"
+              @click="setLocale('en')"
+            >
+              EN
+            </button>
+          </div>
+
           <button
             type="button"
-            class="rounded px-2.5 py-1 transition"
-            :class="locale === 'ru' ? 'bg-slate-800 text-white' : 'text-slate-700 hover:bg-slate-100'"
-            @click="setLocale('ru')"
+            class="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:border-slate-400 hover:bg-slate-50"
+            @click="openGenerationsDrawer"
+            :aria-label="t('chart.generationsAriaLabel')"
           >
-            RU
-          </button>
-          <button
-            type="button"
-            class="rounded px-2.5 py-1 transition"
-            :class="locale === 'en' ? 'bg-slate-800 text-white' : 'text-slate-700 hover:bg-slate-100'"
-            @click="setLocale('en')"
-          >
-            EN
+            <span class="inline-flex h-5 w-5 items-center justify-center rounded-full border border-slate-300" aria-hidden="true">
+              <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M13 2L4 14h6l-1 8 9-12h-6l1-8z" stroke-linejoin="round" />
+              </svg>
+            </span>
+            <span>{{ availableGenerations }}</span>
+            <span class="inline-flex h-5 w-5 items-center justify-center rounded-full border border-slate-300 text-sm leading-none">+</span>
           </button>
         </div>
 
@@ -1251,6 +1392,120 @@ onMounted(() => {
                   <path d="M8 5.14v14l11-7-11-6.86z" />
                 </svg>
               </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Transition>
+
+    <Transition
+      enter-active-class="transition duration-250 ease-out"
+      enter-from-class="opacity-0"
+      enter-to-class="opacity-100"
+      leave-active-class="transition duration-200 ease-in"
+      leave-from-class="opacity-100"
+      leave-to-class="opacity-0"
+    >
+      <div
+        v-if="generationsDrawerOpen"
+        class="fixed inset-0 z-[85] bg-slate-950/35 backdrop-blur-[1px]"
+        @click="closeGenerationsDrawer"
+      ></div>
+    </Transition>
+
+    <Transition
+      enter-active-class="transition-transform duration-300 ease-out"
+      enter-from-class="translate-y-full"
+      enter-to-class="translate-y-0"
+      leave-active-class="transition-transform duration-220 ease-in"
+      leave-from-class="translate-y-0"
+      leave-to-class="translate-y-full"
+    >
+      <div
+        v-if="generationsDrawerOpen"
+        class="fixed bottom-0 left-0 right-0 z-[86] mx-auto w-full max-w-xl rounded-t-2xl border border-slate-200 bg-white p-4 shadow-2xl sm:p-5"
+        @click.stop
+      >
+        <div class="mb-3 flex items-center justify-between">
+          <h3 class="text-sm font-semibold text-slate-900 sm:text-base">{{ t('chart.generationsPurchaseTitle') }}</h3>
+          <button
+            type="button"
+            class="rounded-md border border-slate-300 px-2 py-1 text-xs text-slate-600 transition hover:bg-slate-100"
+            @click="closeGenerationsDrawer"
+          >
+            {{ t('chart.close') }}
+          </button>
+        </div>
+
+        <div class="mb-3 grid grid-cols-2 gap-2">
+          <div class="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+            <p class="text-[11px] text-slate-500">{{ t('chart.balancePaid') }}</p>
+            <p class="text-sm font-semibold text-slate-900">{{ paidBalance }}</p>
+          </div>
+          <div class="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+            <p class="text-[11px] text-slate-500">{{ t('chart.balanceFree') }}</p>
+            <p class="text-sm font-semibold text-slate-900">{{ freeBalance }}</p>
+          </div>
+        </div>
+
+        <div class="mb-3 flex items-center gap-2">
+          <span class="text-xs text-slate-600">{{ t('chart.topupTarget') }}</span>
+          <button
+            type="button"
+            class="rounded-md border px-2 py-1 text-xs"
+            :class="selectedTopupField === 'balance' ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-slate-300 text-slate-600'"
+            @click="selectedTopupField = 'balance'"
+          >
+            {{ t('chart.balancePaid') }}
+          </button>
+          <button
+            type="button"
+            class="rounded-md border px-2 py-1 text-xs"
+            :class="selectedTopupField === 'free_balance' ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-slate-300 text-slate-600'"
+            @click="selectedTopupField = 'free_balance'"
+          >
+            {{ t('chart.balanceFree') }}
+          </button>
+        </div>
+
+        <div class="space-y-2">
+          <p v-if="topupPackagesLoading" class="text-xs text-slate-500">{{ t('chart.topupLoadingPackages') }}</p>
+          <p v-else-if="!topupPackages.length" class="text-xs text-slate-500">{{ t('chart.topupNoPackages') }}</p>
+          <div
+            v-for="pack in topupPackages"
+            :key="`${pack.units}-${pack.stars}`"
+            class="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-3 py-2"
+          >
+            <span class="text-sm text-slate-700">{{ generationAmountLabel(pack.units) }}</span>
+            <span class="text-sm font-semibold text-slate-900">{{ pack.stars }} ⭐</span>
+            <button
+              type="button"
+              class="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+              :disabled="topupActionLoading"
+              @click="buyTopup(pack)"
+            >
+              {{ t('chart.buy') }}
+            </button>
+          </div>
+        </div>
+
+        <p v-if="topupStatus !== 'idle'" class="mt-3 text-xs text-slate-600">
+          {{ t('chart.topupStatus') }}: {{ topupStatus }}
+        </p>
+        <p v-if="topupError" class="mt-2 rounded-md bg-red-50 px-2 py-1.5 text-xs text-red-700">
+          {{ topupError }}
+        </p>
+
+        <div class="mt-3">
+          <p class="mb-1 text-xs font-medium text-slate-700">{{ t('chart.topupHistory') }}</p>
+          <p v-if="topupPaymentsLoading" class="text-xs text-slate-500">{{ t('chart.topupLoadingHistory') }}</p>
+          <div v-else class="max-h-24 space-y-1 overflow-y-auto pr-1">
+            <div
+              v-for="(payment, paymentIndex) in topupPayments"
+              :key="String(payment.id ?? paymentIndex)"
+              class="rounded-md border border-slate-200 px-2 py-1 text-[11px] text-slate-600"
+            >
+              {{ payment.units ?? 0 }}/{{ payment.stars ?? 0 }} ⭐ - {{ payment.status ?? 'pending' }}
             </div>
           </div>
         </div>
