@@ -39,7 +39,10 @@ function syncTelegramViewportInsets() {
     telegramBottomInsetPx.value = Math.max(0, Number(insets?.bottom ?? 0))
     const windowH = typeof window !== 'undefined' ? window.innerHeight : 0
     const viewportH = Number.isFinite(h) && h > 0 ? h : 0
-    const derivedTop = Math.max(0, windowH - viewportH - telegramBottomInsetPx.value)
+    const hasUsableViewport = viewportH > 0 && windowH > 0 && viewportH <= windowH
+    const derivedTop = hasUsableViewport
+      ? Math.max(0, windowH - viewportH - telegramBottomInsetPx.value)
+      : 0
     telegramUiTopInsetPx.value = Math.round(derivedTop)
   } catch {
     viewportHeightCss.value = '100dvh'
