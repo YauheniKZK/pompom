@@ -43,7 +43,7 @@ export const messages = {
     },
     chart: {
       defaultTitle: 'Top Sales by Year',
-      defaultDescription: 'Bar Chart Race на основе периодов',
+      defaultDescription: 'Анимированный рейтинг по периодам',
       settingsTitle: 'Настройки Postigator Lab',
       title: 'Название',
       titlePlaceholder: 'Введите заголовок графика',
@@ -59,6 +59,9 @@ export const messages = {
       rightDesc: 'Название и значение друг под другом в правом краю бара',
       left: 'Слева',
       leftDesc: 'Название и значение друг под другом в левом краю бара',
+      demoDataBadge:
+        'Данные ниже показаны как пример. Можно очистить всё и ввести свои, или использовать импорт выше.',
+      clear: 'Очистить',
       itemsSection: '1) Названия элементов',
       itemPlaceholder: 'Например: Product A',
       add: 'Добавить',
@@ -112,7 +115,7 @@ export const messages = {
     },
     chart: {
       defaultTitle: 'Top Sales by Year',
-      defaultDescription: 'Bar Chart Race by periods',
+      defaultDescription: 'Animated ranking by periods',
       settingsTitle: 'Postigator Lab Settings',
       title: 'Title',
       titlePlaceholder: 'Enter chart title',
@@ -128,6 +131,9 @@ export const messages = {
       rightDesc: 'Name and value stacked at the right edge of the bar',
       left: 'Left',
       leftDesc: 'Name and value stacked at the left edge of the bar',
+      demoDataBadge:
+        'The data below is sample data. You can clear everything and enter your own, or use the import above.',
+      clear: 'Clear',
       itemsSection: '1) Item names',
       itemPlaceholder: 'For example: Product A',
       add: 'Add',

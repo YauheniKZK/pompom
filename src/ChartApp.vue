@@ -409,6 +409,13 @@ const removePeriod = (periodId: string) => {
   }
 }
 
+const clearAllSampleData = () => {
+  names.value = []
+  periods.value = []
+  selectedPeriodId.value = ''
+  errorMessage.value = ''
+}
+
 const triggerCsvPick = () => {
   csvFileInput.value?.click()
 }
@@ -844,6 +851,21 @@ onMounted(() => {
               </span>
             </label>
           </div>
+        </div>
+
+        <div
+          class="mb-3 flex items-center justify-between gap-2 rounded-xl border border-violet-200 bg-violet-50 px-3 py-2 text-xs text-violet-800 sm:mb-4 sm:px-3.5 sm:py-2.5"
+        >
+          <p class="min-w-0 leading-snug">
+            {{ t('chart.demoDataBadge') }}
+          </p>
+          <button
+            type="button"
+            class="shrink-0 rounded-md border border-violet-300 bg-white px-2 py-1 text-[11px] font-medium text-violet-700 transition hover:bg-violet-100 sm:text-xs"
+            @click="clearAllSampleData"
+          >
+            {{ t('chart.clear') }}
+          </button>
         </div>
 
         <div class="mb-3 rounded-lg border border-slate-200 p-3 sm:mb-4 sm:p-4">
