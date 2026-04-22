@@ -45,7 +45,7 @@ function syncTelegramViewportInsets() {
       : 0
     const platform = String(WebApp.platform ?? '').toLowerCase()
     const isTelegramMobile = platform === 'ios' || platform === 'android'
-    const fallbackTelegramTop = isTelegramMobile ? 48 : 0
+    const fallbackTelegramTop = isTelegramMobile ? 64 : 0
     telegramUiTopInsetPx.value = Math.max(Math.round(derivedTop), fallbackTelegramTop)
   } catch {
     viewportHeightCss.value = '100dvh'
