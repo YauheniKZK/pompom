@@ -397,8 +397,10 @@ const isAdminUser = computed(() => {
 })
 
 const visibleTopupPackages = computed(() => {
-  if (isAdminUser.value) return topupPackages.value
-  return topupPackages.value.filter((pack) => !(pack.units === 1 && pack.stars === 1))
+  const list = isAdminUser.value
+    ? topupPackages.value
+    : topupPackages.value.filter((pack) => !(pack.units === 1 && pack.stars === 1))
+  return [...list].sort((a, b) => a.units - b.units || a.stars - b.stars)
 })
 
 const paidBalance = computed(() => {
@@ -1499,13 +1501,16 @@ onMounted(() => {
           <div
             v-for="pack in visibleTopupPackages"
             :key="`${pack.units}-${pack.stars}`"
-            class="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-3 py-2"
+            class="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2"
           >
-            <span class="text-sm text-slate-700">{{ generationAmountLabel(pack.units) }}</span>
-            <span class="text-sm font-semibold text-slate-900">{{ pack.stars }} ⭐</span>
+            <span class="min-w-0 flex-1 text-sm text-slate-800">
+              <span class="font-medium">{{ generationAmountLabel(pack.units) }}</span>
+              <span class="text-slate-400"> · </span>
+              <span class="font-semibold tabular-nums">{{ pack.stars }} ⭐</span>
+            </span>
             <button
               type="button"
-              class="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+              class="shrink-0 rounded-md border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
               :disabled="topupActionLoading"
               @click="buyTopup(pack)"
             >
