@@ -81,6 +81,10 @@ export const messages = {
       startAnimation: 'Запустить анимацию',
       playDisabledTitleRequired: 'Заполните название графика, чтобы запустить Play.',
       playDisabledNeedTwoItems: 'Нужно минимум 2 элемента в графике для запуска Play.',
+      playReminderTitle: 'Перед запуском',
+      playReminderText: 'Не забудьте включить запись экрана, чтобы записать ролик.',
+      playReminderDone: 'Сделано',
+      playReminderCancel: 'Отменить',
       errors: {
         enterItem: 'Введите название элемента.',
         duplicateItem: 'Такое название уже существует.',
@@ -153,6 +157,10 @@ export const messages = {
       startAnimation: 'Start animation',
       playDisabledTitleRequired: 'Enter a chart title to enable Play.',
       playDisabledNeedTwoItems: 'At least 2 items are required to enable Play.',
+      playReminderTitle: 'Before starting',
+      playReminderText: "Don't forget to enable screen recording to capture the video.",
+      playReminderDone: 'Done',
+      playReminderCancel: 'Cancel',
       errors: {
         enterItem: 'Enter an item name.',
         duplicateItem: 'This item name already exists.',

@@ -217,6 +217,8 @@ const mobileFloatActionsReady = ref(true)
 const showMobileChartFloats = computed(
   () => showChartPlay.value && mobileFloatActionsReady.value,
 )
+const playReminderOpen = ref(false)
+const pendingPlayData = ref<RawDataItem[] | null>(null)
 const hasValidChartTitle = computed(() => chartTitle.value.trim().length > 0)
 const hasMinimumItems = computed(() => names.value.length >= 2)
 const playDisabledReason = computed(() => {
@@ -617,14 +619,7 @@ const runBarChartRace = async (rawData: RawDataItem[], settings: ChartRenderSett
   }
 }
 
-const onPlay = () => {
-  if (!canStartPlay.value) {
-    errorMessage.value = playDisabledReason.value
-    return
-  }
-  const data = collectDataFromForm()
-  if (!data) return
-
+const startPlayWithData = (data: RawDataItem[]) => {
   clearTimers()
   mobileFloatActionsReady.value = false
   isAnimating.value = false
@@ -664,6 +659,32 @@ const onPlay = () => {
     }
     startTimeout = null
   }, 5000)
+}
+
+const closePlayReminder = () => {
+  playReminderOpen.value = false
+  pendingPlayData.value = null
+}
+
+const confirmPlayReminder = () => {
+  if (!pendingPlayData.value) {
+    closePlayReminder()
+    return
+  }
+  const data = pendingPlayData.value
+  closePlayReminder()
+  startPlayWithData(data)
+}
+
+const onPlay = () => {
+  if (!canStartPlay.value) {
+    errorMessage.value = playDisabledReason.value
+    return
+  }
+  const data = collectDataFromForm()
+  if (!data) return
+  pendingPlayData.value = data
+  playReminderOpen.value = true
 }
 
 onBeforeUnmount(() => {
@@ -1169,6 +1190,50 @@ onMounted(() => {
                 </svg>
               </button>
             </div>
+          </div>
+        </div>
+      </div>
+    </Transition>
+
+    <Transition
+      enter-active-class="transition duration-250 ease-out"
+      enter-from-class="opacity-0"
+      enter-to-class="opacity-100"
+      leave-active-class="transition duration-200 ease-in"
+      leave-from-class="opacity-100"
+      leave-to-class="opacity-0"
+    >
+      <div
+        v-if="playReminderOpen"
+        class="fixed inset-0 z-[80] flex items-center justify-center bg-slate-900/45 px-4 backdrop-blur-[2px]"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="play-reminder-title"
+      >
+        <div
+          class="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-4 shadow-2xl sm:p-5"
+        >
+          <h3 id="play-reminder-title" class="text-base font-semibold text-slate-900 sm:text-lg">
+            {{ t('chart.playReminderTitle') }}
+          </h3>
+          <p class="mt-2 text-sm leading-relaxed text-slate-600">
+            {{ t('chart.playReminderText') }}
+          </p>
+          <div class="mt-4 flex items-center justify-end gap-2">
+            <button
+              type="button"
+              class="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:bg-slate-50 sm:text-sm"
+              @click="closePlayReminder"
+            >
+              {{ t('chart.playReminderCancel') }}
+            </button>
+            <button
+              type="button"
+              class="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-blue-700 sm:text-sm"
+              @click="confirmPlayReminder"
+            >
+              {{ t('chart.playReminderDone') }}
+            </button>
           </div>
         </div>
       </div>
