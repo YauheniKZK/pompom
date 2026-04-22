@@ -13,10 +13,11 @@ const showChartApp = ref(detectTelegramMiniApp())
 const viewportHeightCss = ref('100dvh')
 const telegramTopInsetPx = ref(0)
 const telegramBottomInsetPx = ref(0)
+const telegramUiTopInsetPx = ref(0)
 
 const fallbackContainerStyle = computed(() => ({
   minHeight: viewportHeightCss.value,
-  paddingTop: `max(2rem, env(safe-area-inset-top), ${telegramTopInsetPx.value}px)`,
+  paddingTop: `max(2rem, env(safe-area-inset-top), ${telegramTopInsetPx.value}px, ${telegramUiTopInsetPx.value}px)`,
   paddingBottom: `max(2rem, env(safe-area-inset-bottom), ${telegramBottomInsetPx.value}px)`,
 }))
 
@@ -36,10 +37,15 @@ function syncTelegramViewportInsets() {
     const insets = app.contentSafeAreaInset ?? app.safeAreaInset
     telegramTopInsetPx.value = Math.max(0, Number(insets?.top ?? 0))
     telegramBottomInsetPx.value = Math.max(0, Number(insets?.bottom ?? 0))
+    const windowH = typeof window !== 'undefined' ? window.innerHeight : 0
+    const viewportH = Number.isFinite(h) && h > 0 ? h : 0
+    const derivedTop = Math.max(0, windowH - viewportH - telegramBottomInsetPx.value)
+    telegramUiTopInsetPx.value = Math.round(derivedTop)
   } catch {
     viewportHeightCss.value = '100dvh'
     telegramTopInsetPx.value = 0
     telegramBottomInsetPx.value = 0
+    telegramUiTopInsetPx.value = 0
   }
 }
 
