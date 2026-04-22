@@ -63,6 +63,8 @@ type SessionOpenResponse = {
 }
 
 type TopupPackage = {
+  /** если сервер отдаёт id пакета — отправим в invoice для однозначного выбора */
+  id?: string | number
   units: number
   stars: number
 }
@@ -269,10 +271,23 @@ async function loadTopupPackages() {
           ? data.items
           : []
     const normalized = list
-      .map((item) => ({
-        units: Number(item.units),
-        stars: Number(item.stars),
-      }))
+      .map((item) => {
+        const raw = item as { id?: unknown; units?: unknown; stars?: unknown }
+        const idRaw = raw.id
+        let id: string | number | undefined
+        if (idRaw === undefined || idRaw === null) {
+          id = undefined
+        } else if (typeof idRaw === 'string' || typeof idRaw === 'number') {
+          id = String(idRaw).trim() === '' ? undefined : idRaw
+        } else {
+          id = undefined
+        }
+        return {
+          id,
+          units: Number(raw.units),
+          stars: Number(raw.stars),
+        }
+      })
       .filter((item) => Number.isFinite(item.units) && item.units > 0 && Number.isFinite(item.stars) && item.stars > 0)
     topupPackages.value = normalized
   } catch (error) {
@@ -299,14 +314,19 @@ async function buyTopup(pkg: TopupPackage) {
   topupError.value = ''
   topupStatus.value = 'pending'
   try {
-    const invoice = await apiPost<TopupInvoiceResponse, { units: number; stars: number; target_field: 'balance' }>(
-      '/api/topup/invoice',
-      {
-        units: pkg.units,
-        stars: pkg.stars,
-        target_field: 'balance',
-      },
-    )
+    const body: Record<string, unknown> = {
+      units: pkg.units,
+      stars: pkg.stars,
+      /** часть бэкендов ожидают сумму в звёздах под этим именем */
+      amount: pkg.stars,
+      /** явный ключ пары units/stars — если бэкенд поддерживает */
+      package_key: `${pkg.units}_${pkg.stars}`,
+      target_field: 'balance',
+    }
+    if (pkg.id !== undefined && pkg.id !== null && String(pkg.id) !== '') {
+      body.package_id = pkg.id
+    }
+    const invoice = await apiPost<TopupInvoiceResponse, Record<string, unknown>>('/api/topup/invoice', body)
     const status = await openInvoice(invoice.invoice_link)
     topupStatus.value = status
     await loadSession()
