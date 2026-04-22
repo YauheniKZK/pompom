@@ -44,7 +44,7 @@ export const messages = {
     chart: {
       defaultTitle: 'Top Sales by Year',
       defaultDescription: 'Bar Chart Race на основе периодов',
-      settingsTitle: 'Настройки Bar Chart Race',
+      settingsTitle: 'Настройки Postigator Lab',
       title: 'Название',
       titlePlaceholder: 'Введите заголовок графика',
       description: 'Описание (необязательно)',
@@ -111,7 +111,7 @@ export const messages = {
     chart: {
       defaultTitle: 'Top Sales by Year',
       defaultDescription: 'Bar Chart Race by periods',
-      settingsTitle: 'Bar Chart Race Settings',
+      settingsTitle: 'Postigator Lab Settings',
       title: 'Title',
       titlePlaceholder: 'Enter chart title',
       description: 'Description (optional)',
