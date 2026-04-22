@@ -189,7 +189,6 @@ const topupActionLoading = ref(false)
 const topupPaymentsLoading = ref(false)
 const topupError = ref('')
 const topupStatus = ref<'idle' | InvoiceStatus>('idle')
-const selectedTopupField = ref<'balance' | 'free_balance'>('balance')
 const countdown = ref<number | null>(null)
 const isAnimating = ref(false)
 const viewportHeightCss = ref('100dvh')
@@ -292,11 +291,11 @@ async function buyTopup(pkg: TopupPackage) {
   topupError.value = ''
   topupStatus.value = 'pending'
   try {
-    const invoice = await apiPost<TopupInvoiceResponse, { units: number; target_field: 'balance' | 'free_balance' }>(
+    const invoice = await apiPost<TopupInvoiceResponse, { units: number; target_field: 'balance' }>(
       '/api/topup/invoice',
       {
         units: pkg.units,
-        target_field: selectedTopupField.value,
+        target_field: 'balance',
       },
     )
     const status = await openInvoice(invoice.invoice_link)
@@ -1446,26 +1445,6 @@ onMounted(() => {
             <p class="text-[11px] text-slate-500">{{ t('chart.balanceFree') }}</p>
             <p class="text-sm font-semibold text-slate-900">{{ freeBalance }}</p>
           </div>
-        </div>
-
-        <div class="mb-3 flex items-center gap-2">
-          <span class="text-xs text-slate-600">{{ t('chart.topupTarget') }}</span>
-          <button
-            type="button"
-            class="rounded-md border px-2 py-1 text-xs"
-            :class="selectedTopupField === 'balance' ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-slate-300 text-slate-600'"
-            @click="selectedTopupField = 'balance'"
-          >
-            {{ t('chart.balancePaid') }}
-          </button>
-          <button
-            type="button"
-            class="rounded-md border px-2 py-1 text-xs"
-            :class="selectedTopupField === 'free_balance' ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-slate-300 text-slate-600'"
-            @click="selectedTopupField = 'free_balance'"
-          >
-            {{ t('chart.balanceFree') }}
-          </button>
         </div>
 
         <div class="space-y-2">
