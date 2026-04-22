@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import WebApp from '@twa-dev/sdk'
 import { isTelegramMiniAppEnvironment } from './lib/telegramEnv'
 import ChartApp from './ChartApp.vue'
@@ -10,6 +10,38 @@ function detectTelegramMiniApp(): boolean {
 }
 
 const showChartApp = ref(detectTelegramMiniApp())
+const viewportHeightCss = ref('100dvh')
+const telegramTopInsetPx = ref(0)
+const telegramBottomInsetPx = ref(0)
+
+const fallbackContainerStyle = computed(() => ({
+  minHeight: viewportHeightCss.value,
+  paddingTop: `max(2rem, env(safe-area-inset-top), ${telegramTopInsetPx.value}px)`,
+  paddingBottom: `max(2rem, env(safe-area-inset-bottom), ${telegramBottomInsetPx.value}px)`,
+}))
+
+function syncTelegramViewportInsets() {
+  try {
+    const app = WebApp as unknown as {
+      viewportHeight?: number
+      viewportStableHeight?: number
+      safeAreaInset?: { top?: number; bottom?: number }
+      contentSafeAreaInset?: { top?: number; bottom?: number }
+    }
+    const stableH = Number(app.viewportStableHeight)
+    const currentH = Number(app.viewportHeight)
+    const h = Number.isFinite(stableH) && stableH > 0 ? stableH : currentH
+    viewportHeightCss.value = Number.isFinite(h) && h > 0 ? `${Math.round(h)}px` : '100dvh'
+
+    const insets = app.contentSafeAreaInset ?? app.safeAreaInset
+    telegramTopInsetPx.value = Math.max(0, Number(insets?.top ?? 0))
+    telegramBottomInsetPx.value = Math.max(0, Number(insets?.bottom ?? 0))
+  } catch {
+    viewportHeightCss.value = '100dvh'
+    telegramTopInsetPx.value = 0
+    telegramBottomInsetPx.value = 0
+  }
+}
 
 function notifyTelegramReady() {
   if (import.meta.env.DEV) return
@@ -43,13 +75,28 @@ onMounted(() => {
   setTimeout(recheck, 200)
 
   notifyTelegramReady()
+  syncTelegramViewportInsets()
+  try {
+    WebApp.onEvent?.('viewportChanged', syncTelegramViewportInsets)
+  } catch {
+    /* no-op */
+  }
+})
+
+onBeforeUnmount(() => {
+  try {
+    WebApp.offEvent?.('viewportChanged', syncTelegramViewportInsets)
+  } catch {
+    /* no-op */
+  }
 })
 </script>
 
 <template>
   <div
     v-if="!showChartApp"
-    class="relative flex min-h-[100dvh] min-w-0 max-w-[100vw] flex-col items-center justify-center overflow-x-hidden overflow-y-auto px-6 pb-[max(2rem,env(safe-area-inset-bottom))] pt-[max(2rem,env(safe-area-inset-top))]"
+    :style="fallbackContainerStyle"
+    class="relative flex min-w-0 max-w-[100vw] flex-col items-center justify-center overflow-x-hidden overflow-y-auto px-6"
   >
     <!-- Фон -->
     <div

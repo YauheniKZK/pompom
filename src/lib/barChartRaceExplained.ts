@@ -22,6 +22,10 @@ export type ExplainedChartOptions = {
   color: (name: string) => string
   /** Цвет подписей имени и значения (как в форме) */
   labelFill: string
+  /** Режим раскладки подписи на баре */
+  labelLayoutMode: 'mode1' | 'mode2' | 'mode3' | 'mode4'
+  /** Размер шрифта значения */
+  valueFontSizePx: number
 }
 
 /** D3: дочерний transition наследует родительский — ослабляем тип для TS */
@@ -201,13 +205,27 @@ export function labels(
   formatNumber: (n: number) => string,
   labelFont: string,
   labelFill: string,
+  labelLayoutMode: 'mode1' | 'mode2' | 'mode3' | 'mode4',
+  valueFontSizePx: number,
 ) {
   return function labelsComponent(svg: d3.Selection<SVGSVGElement, unknown, null, undefined>) {
+    const isLeftMode = labelLayoutMode === 'mode4'
+    const isSingleLine = labelLayoutMode === 'mode2'
+    const isStacked = labelLayoutMode === 'mode3' || labelLayoutMode === 'mode4'
+    const anchor: 'start' | 'end' = isLeftMode ? 'start' : 'end'
+    const xOffset = isLeftMode ? 6 : -6
+
+    const labelX = (d: RankedRow) => (isLeftMode ? x(0) : x(d.value))
+    const labelTransform = (d: RankedRow) => `translate(${labelX(d)},${y(String(d.rank))})`
+
+    const valueDy = isStacked ? '1.15em' : '0em'
+    const valueDx = isSingleLine ? '0.55em' : '0em'
+
     let label = svg
       .append('g')
       .style('font', labelFont)
       .style('font-variant-numeric', 'tabular-nums')
-      .attr('text-anchor', 'end')
+      .attr('text-anchor', anchor)
       .selectAll<SVGTextElement, RankedRow>('text')
 
     return function update(
@@ -226,20 +244,26 @@ export function labels(
               .attr(
                 'transform',
                 (d) =>
-                  `translate(${x((prev.get(d) ?? d).value)},${y(String((prev.get(d) ?? d).rank))})`,
+                  labelTransform({
+                    ...(prev.get(d) ?? d),
+                    rank: (prev.get(d) ?? d).rank,
+                  }),
               )
               .attr('y', y.bandwidth() / 2)
-              .attr('x', -6)
+              .attr('x', xOffset)
               .attr('dy', '-0.25em')
-              .text((d) => d.name)
+              .text((d) => (isSingleLine ? `${d.name}` : d.name))
               .call((text) =>
                 text
                   .append('tspan')
                   .attr('fill', labelFill)
                   .attr('fill-opacity', 0.7)
                   .attr('font-weight', 'normal')
-                  .attr('x', -6)
-                  .attr('dy', '1.15em'),
+                  .style('font-size', `${valueFontSizePx}px`)
+                  .attr('x', xOffset)
+                  .attr('dx', valueDx)
+                  .attr('dy', valueDy)
+                  .text((d) => (isSingleLine ? formatNumber(d.value) : '')),
               ),
           (update) => update,
           (exit) =>
@@ -249,24 +273,25 @@ export function labels(
               .attr(
                 'transform',
                 (d) =>
-                  `translate(${x((next.get(d) ?? d).value)},${y(String((next.get(d) ?? d).rank))})`,
+                  labelTransform({
+                    ...(next.get(d) ?? d),
+                    rank: (next.get(d) ?? d).rank,
+                  }),
               )
               .call((g) =>
                 g.select('tspan').textTween(
                   (d) =>
                     ((t: number) =>
-                      String(
-                        Math.round(
-                          d3.interpolateNumber(d.value, (next.get(d) ?? d).value)(t),
-                        ),
-                      )) as unknown as (t: number) => string,
+                      formatNumber(d3.interpolateNumber(d.value, (next.get(d) ?? d).value)(t))) as unknown as (
+                      t: number
+                    ) => string,
                 ),
               ),
         )
         .call((sel) =>
           sel
             .transition(sub)
-            .attr('transform', (d) => `translate(${x(d.value)},${y(String(d.rank))})`)
+            .attr('transform', (d) => labelTransform(d))
             .call((g) =>
               g.select('tspan').textTween((d) => {
                 const i = d3.interpolateNumber((prev.get(d) ?? d).value, d.value)
@@ -373,7 +398,18 @@ export function createExplainedContext(
 
   const updateBars = bars(n, colorFn, y, x, prev, next)(svg)
   const updateAxis = axis(margin, x, width, barSize, n, y)(svg)
-  const updateLabels = labels(n, x, prev, y, next, formatNumber, labelFont, options.labelFill)(svg)
+  const updateLabels = labels(
+    n,
+    x,
+    prev,
+    y,
+    next,
+    formatNumber,
+    labelFont,
+    options.labelFill,
+    options.labelLayoutMode,
+    options.valueFontSizePx,
+  )(svg)
   const updateTicker = ticker(barSize, width, margin, n, periodsOrdered[0] ?? '')(svg)
 
   return {

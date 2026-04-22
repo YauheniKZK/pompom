@@ -38,20 +38,16 @@ type PeriodForm = {
 }
 
 type ChartRenderSettings = {
-  barHeightPx: number
   labelLayoutMode: LabelLayoutMode
-  nameFontSizePx: number
-  valueFontSizePx: number
   labelColor: string
 }
 
 const chartTitle = ref('Top Sales by Year')
 const chartDescription = ref('Bar Chart Race на основе периодов')
-const labelLayoutMode = ref<LabelLayoutMode>('mode1')
-const barHeightPx = ref(50)
-const nameFontSizePx = ref(13)
-const valueFontSizePx = ref(13)
-const labelColor = ref('#334155')
+const labelLayoutMode = ref<LabelLayoutMode>('mode3')
+const BAR_HEIGHT_PX = 50
+const NAME_FONT_SIZE_PX = 13
+const VALUE_FONT_SIZE_PX = 13
 const names = ref<NameItem[]>([
   { id: crypto.randomUUID(), name: 'Product A', color: '#1d4ed8' },
   { id: crypto.randomUUID(), name: 'Product B', color: '#dc2626' },
@@ -102,10 +98,61 @@ const chartPanelOpen = ref(false)
 const errorMessage = ref('')
 const countdown = ref<number | null>(null)
 const isAnimating = ref(false)
+const viewportHeightCss = ref('100dvh')
+const telegramTopInsetPx = ref(0)
+const telegramBottomInsetPx = ref(0)
+
+const mainContainerStyle = computed(() => ({
+  minHeight: viewportHeightCss.value,
+  paddingTop: `max(0.75rem, env(safe-area-inset-top), ${telegramTopInsetPx.value}px)`,
+  paddingBottom: `max(5rem, env(safe-area-inset-bottom), ${telegramBottomInsetPx.value}px)`,
+  paddingLeft: 'max(0.75rem, env(safe-area-inset-left))',
+  paddingRight: 'max(0.75rem, env(safe-area-inset-right))',
+}))
+
+const mobileFabStyle = computed(() => ({
+  bottom: `max(0.75rem, env(safe-area-inset-bottom), ${telegramBottomInsetPx.value}px)`,
+  right: 'max(0.75rem, env(safe-area-inset-right))',
+}))
+
+const mobilePanelHeaderStyle = computed(() => ({
+  paddingTop: `max(0.5rem, env(safe-area-inset-top), ${telegramTopInsetPx.value}px)`,
+}))
+
+const mobilePanelBodyStyle = computed(() => ({
+  paddingBottom: `max(4.75rem, env(safe-area-inset-bottom), ${telegramBottomInsetPx.value + 8}px)`,
+}))
+
+const mobilePanelFloatsStyle = computed(() => ({
+  bottom: `max(0.5rem, env(safe-area-inset-bottom), ${telegramBottomInsetPx.value}px)`,
+}))
 
 let startTimeout: number | null = null
 let countdownInterval: number | null = null
 let postRaceFloatTimer: number | null = null
+
+function syncTelegramViewportInsets() {
+  try {
+    const app = WebApp as unknown as {
+      viewportHeight?: number
+      viewportStableHeight?: number
+      safeAreaInset?: { top?: number; bottom?: number }
+      contentSafeAreaInset?: { top?: number; bottom?: number }
+    }
+    const stableH = Number(app.viewportStableHeight)
+    const currentH = Number(app.viewportHeight)
+    const h = Number.isFinite(stableH) && stableH > 0 ? stableH : currentH
+    viewportHeightCss.value = Number.isFinite(h) && h > 0 ? `${Math.round(h)}px` : '100dvh'
+
+    const insets = app.contentSafeAreaInset ?? app.safeAreaInset
+    telegramTopInsetPx.value = Math.max(0, Number(insets?.top ?? 0))
+    telegramBottomInsetPx.value = Math.max(0, Number(insets?.bottom ?? 0))
+  } catch {
+    viewportHeightCss.value = '100dvh'
+    telegramTopInsetPx.value = 0
+    telegramBottomInsetPx.value = 0
+  }
+}
 
 /** Play, Закрыть (моб. панель), FAB — скрываем на отсчёте и во время анимации */
 const showChartPlay = computed(() => countdown.value === null && !isAnimating.value)
@@ -173,27 +220,15 @@ const selectedPeriod = computed(() =>
 
 const getNameByName = (name: string) => names.value.find((item) => item.name === name)
 const getBarColor = (name: string) => getNameByName(name)?.color ?? '#64748b'
-const updateBarColor = (name: string, color: string) => {
-  const item = getNameByName(name)
-  if (!item) return
-  item.color = color
-}
 
 const randomColor = () =>
   `#${Math.floor(Math.random() * 0xffffff)
     .toString(16)
     .padStart(6, '0')}`
 
-const randomizeAllBarColors = () => {
-  names.value = names.value.map((item) => ({ ...item, color: randomColor() }))
-}
-
 const getCurrentSettings = (): ChartRenderSettings => ({
-  barHeightPx: barHeightPx.value,
   labelLayoutMode: labelLayoutMode.value,
-  nameFontSizePx: nameFontSizePx.value,
-  valueFontSizePx: valueFontSizePx.value,
-  labelColor: labelColor.value,
+  labelColor: '#334155',
 })
 
 const resolveChartSvgEl = (): SVGSVGElement | null => {
@@ -443,14 +478,16 @@ const renderPreviewChart = (rawData: RawDataItem[]) => {
   const options: ExplainedChartOptions = {
     width,
     topN,
-    barSize: barHeightPx.value,
+    barSize: BAR_HEIGHT_PX,
     durationMs: explainedDurationMs,
     keyframeSteps,
     margin: explainedMargin,
     color: getBarColor,
-    labelFill: labelColor.value,
+    labelFill: '#334155',
+    labelLayoutMode: labelLayoutMode.value,
+    valueFontSizePx: VALUE_FONT_SIZE_PX,
   }
-  const labelFont = `bold ${nameFontSizePx.value}px var(--sans-serif, ui-sans-serif, system-ui, sans-serif)`
+  const labelFont = `bold ${NAME_FONT_SIZE_PX}px var(--sans-serif, ui-sans-serif, system-ui, sans-serif)`
 
   const ctx = createExplainedContext(svgEl, keyframes, periodsOrdered, options, labelFont)
   if (!ctx) return
@@ -481,14 +518,16 @@ const runBarChartRace = async (rawData: RawDataItem[], settings: ChartRenderSett
   const options: ExplainedChartOptions = {
     width,
     topN,
-    barSize: settings.barHeightPx,
+    barSize: BAR_HEIGHT_PX,
     durationMs: explainedDurationMs,
     keyframeSteps,
     margin: explainedMargin,
     color: getBarColor,
     labelFill: settings.labelColor,
+    labelLayoutMode: settings.labelLayoutMode,
+    valueFontSizePx: VALUE_FONT_SIZE_PX,
   }
-  const labelFont = `bold ${settings.nameFontSizePx}px var(--sans-serif, ui-sans-serif, system-ui, sans-serif)`
+  const labelFont = `bold ${NAME_FONT_SIZE_PX}px var(--sans-serif, ui-sans-serif, system-ui, sans-serif)`
 
   const ctx = createExplainedContext(svgEl, keyframes, periodsOrdered, options, labelFont)
   if (!ctx) return
@@ -560,6 +599,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('resize', handleWindowResize)
   document.removeEventListener('keydown', onChartPanelKeydown)
   try {
+    WebApp.offEvent?.('viewportChanged', syncTelegramViewportInsets)
     WebApp.BackButton.offClick(onTelegramBackClosePanel)
     WebApp.BackButton.hide()
   } catch {
@@ -574,7 +614,7 @@ const handleWindowResize = () => {
 }
 
 watch(
-  [periods, names, labelLayoutMode, barHeightPx, nameFontSizePx, valueFontSizePx, labelColor],
+  [periods, names, labelLayoutMode],
   () => {
     if (isAnimating.value || countdown.value !== null) return
     renderPreviewChart(collectDataForPreview())
@@ -603,16 +643,23 @@ watch([chartPanelOpen, isMobileLayout], () => {
 
 onMounted(() => {
   syncMobileLayout()
+  syncTelegramViewportInsets()
   renderPreviewChart(collectDataForPreview())
   window.addEventListener('resize', handleWindowResize)
   document.addEventListener('keydown', onChartPanelKeydown)
+  try {
+    WebApp.onEvent?.('viewportChanged', syncTelegramViewportInsets)
+  } catch {
+    /* no-op */
+  }
   scheduleSyncTelegramBackButton()
 })
 </script>
 
 <template>
   <main
-    class="box-border min-h-screen min-w-0 max-w-[100vw] overflow-x-hidden bg-slate-100 pb-[max(5rem,env(safe-area-inset-bottom))] pl-[max(0.75rem,env(safe-area-inset-left))] pr-[max(0.75rem,env(safe-area-inset-right))] pt-[max(0.75rem,env(safe-area-inset-top))] text-slate-900 sm:pb-6 sm:pl-4 sm:pr-4 sm:pt-4 lg:px-6 lg:pt-6"
+    :style="mainContainerStyle"
+    class="box-border min-w-0 max-w-[100vw] overflow-x-hidden bg-slate-100 text-slate-900 sm:pb-6 sm:pl-4 sm:pr-4 sm:pt-4 lg:px-6 lg:pt-6"
   >
     <div class="mx-auto grid w-full min-w-0 max-w-7xl gap-3 sm:gap-4 lg:grid-cols-2 lg:gap-6">
       <section
@@ -651,13 +698,15 @@ onMounted(() => {
           <p
             class="mb-2 break-words text-[11px] leading-snug text-slate-600 sm:mb-3 sm:text-xs sm:leading-relaxed"
           >
-            Формат как в D3 Bar Chart Race:
-            <code class="break-all rounded bg-white px-1 py-0.5 text-[11px] text-slate-800">date, name, value</code>
-            и при необходимости
-            <code class="break-all rounded bg-white px-1 py-0.5 text-[11px] text-slate-800">category</code>
-            (год берётся из даты). Альтернатива без даты:
-            <code class="break-all rounded bg-white px-1 py-0.5 text-[11px] text-slate-800">name, value, period</code>
-            . Импорт заменяет названия, периоды и значения в форме.
+            Формат из примера:
+            <code class="break-all rounded bg-white px-1 py-0.5 text-[11px] text-slate-800">date,name,value</code>
+            . Обязательные поля:
+            <code class="break-all rounded bg-white px-1 py-0.5 text-[11px] text-slate-800">date,name,value</code>
+            ; дата обычно в виде
+            <code class="break-all rounded bg-white px-1 py-0.5 text-[11px] text-slate-800">YYYY-MM-DD</code>
+            . Также можно:
+            <code class="break-all rounded bg-white px-1 py-0.5 text-[11px] text-slate-800">name,value,period</code>
+            . Импорт заменяет текущие данные формы.
           </p>
           <input
             ref="csvFileInput"
@@ -677,40 +726,14 @@ onMounted(() => {
 
         <div class="mb-3 sm:mb-4">
           <label class="mb-1.5 block text-xs font-medium text-slate-700 sm:mb-2 sm:text-sm"
-            >Отображение текста на барах</label
+            >Расположение подписи на баре</label
           >
-          <p class="mb-2 text-[11px] text-slate-500 sm:text-xs">
-            График в стиле D3 «Bar Chart Race, Explained»: подписи у правого края бара; пункты ниже зарезервированы.
+          <p class="mb-2 text-[11px] text-slate-500 sm:mb-3 sm:text-xs">
+            Выберите, где показывать название и значение: в правом или левом краю бара.
           </p>
-          <div class="grid min-w-0 gap-1.5 sm:grid-cols-2 sm:gap-2">
+          <div class="grid min-w-0 gap-2 sm:grid-cols-2 sm:gap-3">
             <label
-              class="flex min-w-0 cursor-pointer items-start gap-2 rounded-lg border p-2.5 transition sm:gap-3 sm:p-3"
-              :class="
-                labelLayoutMode === 'mode1'
-                  ? 'border-blue-500 bg-blue-50'
-                  : 'border-slate-300 bg-white hover:border-slate-400'
-              "
-            >
-              <input v-model="labelLayoutMode" type="radio" value="mode1" class="mt-0.5 h-3.5 w-3.5 sm:mt-1 sm:h-4 sm:w-4" />
-              <span class="min-w-0 flex-1 break-words text-xs leading-snug text-slate-700 sm:text-sm"
-                >1. Как сейчас</span>
-            </label>
-
-            <label
-              class="flex min-w-0 cursor-pointer items-start gap-2 rounded-lg border p-2.5 transition sm:gap-3 sm:p-3"
-              :class="
-                labelLayoutMode === 'mode2'
-                  ? 'border-blue-500 bg-blue-50'
-                  : 'border-slate-300 bg-white hover:border-slate-400'
-              "
-            >
-              <input v-model="labelLayoutMode" type="radio" value="mode2" class="mt-0.5 h-3.5 w-3.5 sm:mt-1 sm:h-4 sm:w-4" />
-              <span class="min-w-0 flex-1 break-words text-xs leading-snug text-slate-700 sm:text-sm"
-                >2. Название и значение внутри бара</span>
-            </label>
-
-            <label
-              class="flex min-w-0 cursor-pointer items-start gap-2 rounded-lg border p-2.5 transition sm:gap-3 sm:p-3"
+              class="flex min-w-0 cursor-pointer items-start gap-2 rounded-xl border p-3 transition sm:gap-3 sm:p-3.5"
               :class="
                 labelLayoutMode === 'mode3'
                   ? 'border-blue-500 bg-blue-50'
@@ -718,13 +741,16 @@ onMounted(() => {
               "
             >
               <input v-model="labelLayoutMode" type="radio" value="mode3" class="mt-0.5 h-3.5 w-3.5 sm:mt-1 sm:h-4 sm:w-4" />
-              <span class="min-w-0 flex-1 break-words text-xs leading-snug text-slate-700 sm:text-sm">
-                3. Название и значение друг под другом в правом конце бара
+              <span class="min-w-0 flex-1 text-xs leading-snug text-slate-700 sm:text-sm">
+                <span class="block font-semibold text-slate-900">Справа</span>
+                <span class="mt-0.5 block text-[11px] text-slate-500 sm:text-xs">
+                  Название и значение друг под другом в правом краю бара
+                </span>
               </span>
             </label>
 
             <label
-              class="flex min-w-0 cursor-pointer items-start gap-2 rounded-lg border p-2.5 transition sm:gap-3 sm:p-3"
+              class="flex min-w-0 cursor-pointer items-start gap-2 rounded-xl border p-3 transition sm:gap-3 sm:p-3.5"
               :class="
                 labelLayoutMode === 'mode4'
                   ? 'border-blue-500 bg-blue-50'
@@ -732,63 +758,13 @@ onMounted(() => {
               "
             >
               <input v-model="labelLayoutMode" type="radio" value="mode4" class="mt-0.5 h-3.5 w-3.5 sm:mt-1 sm:h-4 sm:w-4" />
-              <span class="min-w-0 flex-1 break-words text-xs leading-snug text-slate-700 sm:text-sm">
-                4. Как 3, только в левом конце бара
+              <span class="min-w-0 flex-1 text-xs leading-snug text-slate-700 sm:text-sm">
+                <span class="block font-semibold text-slate-900">Слева</span>
+                <span class="mt-0.5 block text-[11px] text-slate-500 sm:text-xs">
+                  Название и значение друг под другом в левом краю бара
+                </span>
               </span>
             </label>
-          </div>
-        </div>
-
-        <div class="mb-3 sm:mb-4">
-          <label class="mb-1 block text-xs font-medium text-slate-700 sm:text-sm"
-            >Высота бара: {{ barHeightPx }} px</label
-          >
-          <input
-            v-model.number="barHeightPx"
-            type="range"
-            min="50"
-            max="100"
-            step="1"
-            class="h-2 w-full cursor-pointer appearance-none rounded-lg bg-slate-200"
-          />
-        </div>
-
-        <div
-          class="mb-3 grid min-w-0 gap-2 rounded-lg border border-slate-200 p-3 sm:mb-4 sm:grid-cols-2 sm:gap-3 sm:p-4"
-        >
-          <div class="min-w-0">
-            <label class="mb-1 block text-xs font-medium text-slate-700 sm:text-sm"
-              >Размер шрифта названия: {{ nameFontSizePx }} px</label
-            >
-            <input
-              v-model.number="nameFontSizePx"
-              type="range"
-              min="10"
-              max="28"
-              step="1"
-              class="h-2 w-full cursor-pointer appearance-none rounded-lg bg-slate-200"
-            />
-          </div>
-          <div class="min-w-0">
-            <label class="mb-1 block text-xs font-medium text-slate-700 sm:text-sm"
-              >Размер шрифта значения: {{ valueFontSizePx }} px</label
-            >
-            <input
-              v-model.number="valueFontSizePx"
-              type="range"
-              min="10"
-              max="28"
-              step="1"
-              class="h-2 w-full cursor-pointer appearance-none rounded-lg bg-slate-200"
-            />
-          </div>
-          <div class="sm:col-span-2">
-            <label class="mb-1 block text-xs font-medium text-slate-700 sm:text-sm">Цвет текста на барах</label>
-            <input
-              v-model="labelColor"
-              type="color"
-              class="h-9 w-16 cursor-pointer rounded border border-slate-300 bg-white p-0.5 sm:h-10 sm:w-20 sm:p-1"
-            />
           </div>
         </div>
 
@@ -881,13 +857,6 @@ onMounted(() => {
               3) Значения для периода:
               <span class="text-blue-700">{{ selectedPeriod?.period || '—' }}</span>
             </p>
-            <button
-              type="button"
-              class="w-full shrink-0 rounded-lg bg-violet-600 px-2.5 py-1.5 text-[11px] font-medium leading-tight text-white hover:bg-violet-700 sm:w-auto sm:px-3 sm:text-xs"
-              @click="randomizeAllBarColors"
-            >
-              Случайные цвета для всех баров
-            </button>
           </div>
 
           <div v-if="!selectedPeriod" class="text-xs text-slate-500 sm:text-sm">
@@ -898,12 +867,12 @@ onMounted(() => {
             <div
               v-for="valueItem in selectedPeriod.values"
               :key="valueItem.name"
-              class="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-12 sm:gap-2"
+              class="flex min-w-0 items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 p-2 sm:gap-3 sm:p-2.5"
             >
               <input
                 :value="valueItem.name"
                 type="text"
-                class="min-w-0 rounded-lg border border-slate-300 px-2 py-1.5 text-xs outline-none focus:border-blue-500 sm:col-span-7 sm:px-3 sm:py-2 sm:text-sm"
+                class="min-w-0 flex-1 rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs outline-none focus:border-blue-500 sm:px-3 sm:py-2 sm:text-sm"
                 disabled
               />
               <input
@@ -913,14 +882,8 @@ onMounted(() => {
                 enterkeyhint="done"
                 min="0"
                 step="any"
-                class="min-w-0 rounded-lg border border-slate-300 px-2 py-1.5 text-xs tabular-nums text-slate-900 outline-none focus:border-blue-500 sm:col-span-3 sm:px-3 sm:py-2 sm:text-sm"
+                class="w-28 shrink-0 rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs tabular-nums text-slate-900 outline-none focus:border-blue-500 sm:w-36 sm:px-3 sm:py-2 sm:text-sm"
                 placeholder="Значение"
-              />
-              <input
-                :value="getBarColor(valueItem.name)"
-                type="color"
-                class="h-9 w-full max-w-[5.5rem] min-w-0 cursor-pointer rounded border border-slate-300 bg-white p-0.5 sm:col-span-2 sm:h-10 sm:max-w-none sm:p-1"
-                @input="updateBarColor(valueItem.name, ($event.target as HTMLInputElement).value)"
               />
             </div>
           </div>
@@ -998,7 +961,8 @@ onMounted(() => {
     <button
       v-show="isMobileLayout && !chartPanelOpen && showMobileChartFloats"
       type="button"
-      class="fixed bottom-[max(0.75rem,env(safe-area-inset-bottom))] right-[max(0.75rem,env(safe-area-inset-right))] z-50 flex h-12 w-12 items-center justify-center rounded-full bg-blue-600 text-white shadow-lg ring-2 ring-white/20 transition hover:bg-blue-700 active:scale-95 sm:bottom-4 sm:right-4 sm:h-14 sm:w-14 lg:hidden"
+      :style="mobileFabStyle"
+      class="fixed z-50 flex h-12 w-12 items-center justify-center rounded-full bg-blue-600 text-white shadow-lg ring-2 ring-white/20 transition hover:bg-blue-700 active:scale-95 sm:bottom-4 sm:right-4 sm:h-14 sm:w-14 lg:hidden"
       aria-label="Открыть график"
       @click="openChartPanel"
     >
@@ -1023,7 +987,8 @@ onMounted(() => {
         aria-labelledby="chart-panel-title"
       >
         <div
-          class="min-w-0 shrink-0 border-b border-slate-200 px-3 py-2.5 pt-[max(0.5rem,env(safe-area-inset-top))] sm:px-4 sm:py-3"
+          :style="mobilePanelHeaderStyle"
+          class="min-w-0 shrink-0 border-b border-slate-200 px-3 py-2.5 sm:px-4 sm:py-3"
         >
           <h2 id="chart-panel-title" class="break-words text-base font-bold leading-snug sm:text-lg">
             {{ chartTitle || 'Без названия' }}
@@ -1033,7 +998,8 @@ onMounted(() => {
           </p>
         </div>
         <div
-          class="relative min-h-0 min-w-0 flex-1 overflow-x-hidden px-3 pb-[max(4.75rem,env(safe-area-inset-bottom))] pt-2 sm:px-4 sm:pb-[max(5.5rem,env(safe-area-inset-bottom))] sm:pt-3"
+          :style="mobilePanelBodyStyle"
+          class="relative min-h-0 min-w-0 flex-1 overflow-x-hidden px-3 pt-2 sm:px-4 sm:pb-[max(5.5rem,env(safe-area-inset-bottom))] sm:pt-3"
         >
           <Transition
             enter-active-class="transition duration-300 ease-out"
@@ -1067,7 +1033,8 @@ onMounted(() => {
             aria-hidden="true"
           >
             <div
-              class="pointer-events-auto absolute bottom-[max(0.5rem,env(safe-area-inset-bottom))] right-2 flex flex-col gap-2 sm:bottom-[max(0.75rem,env(safe-area-inset-bottom))] sm:right-3 sm:gap-3"
+              :style="mobilePanelFloatsStyle"
+              class="pointer-events-auto absolute right-2 flex flex-col gap-2 sm:bottom-[max(0.75rem,env(safe-area-inset-bottom))] sm:right-3 sm:gap-3"
             >
               <button
                 v-if="showCustomPanelCloseButton"
