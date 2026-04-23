@@ -1141,7 +1141,22 @@ onMounted(() => {
                 <path d="M13 2L4 14h6l-1 8 9-12h-6l1-8z" stroke-linejoin="round" />
               </svg>
             </span>
-            <span>{{ availableGenerations }}</span>
+            <span class="inline-flex items-center gap-2">
+              <span
+                class="inline-flex items-center gap-1 rounded-md bg-slate-100 px-1.5 py-0.5 tabular-nums"
+                :title="t('chart.balancePaid')"
+              >
+                <span class="h-1.5 w-1.5 rounded-full bg-slate-700" aria-hidden="true"></span>
+                <span>{{ paidBalance }}</span>
+              </span>
+              <span
+                class="inline-flex items-center gap-1 rounded-md bg-emerald-50 px-1.5 py-0.5 tabular-nums text-emerald-700"
+                :title="t('chart.balanceFree')"
+              >
+                <span class="h-1.5 w-1.5 rounded-full bg-emerald-500" aria-hidden="true"></span>
+                <span>{{ freeBalance }}</span>
+              </span>
+            </span>
             <span class="inline-flex h-5 w-5 items-center justify-center rounded-full border border-slate-300 text-sm leading-none">+</span>
           </button>
         </div>
