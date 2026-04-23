@@ -1546,13 +1546,11 @@ onMounted(() => {
       v-show="showHideKeyboardFab"
       type="button"
       :style="mobileKeyboardFabStyle"
-      class="fixed z-50 flex h-14 w-14 items-center justify-center rounded-full bg-slate-700 text-white shadow-lg ring-2 ring-white/20 transition hover:bg-slate-800 active:scale-95 sm:h-16 sm:w-16 lg:hidden"
+      class="fixed z-50 inline-flex h-10 items-center justify-center rounded-full border border-slate-300 bg-white px-3 text-xs font-medium text-slate-700 shadow-sm transition hover:bg-slate-50 active:scale-95 sm:h-11 sm:text-sm lg:hidden"
       :aria-label="t('chart.hideKeyboard')"
       @click="dismissKeyboard"
     >
-      <svg class="h-7 w-7 sm:h-8 sm:w-8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-        <path d="M4 7h16M6 11v3h12v-3M8 11V9m8 2V9M8 14l4 4 4-4" stroke-linecap="round" stroke-linejoin="round" />
-      </svg>
+      {{ t('chart.hideKeyboard') }}
     </button>
 
     <button
