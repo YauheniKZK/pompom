@@ -221,6 +221,7 @@ const topupError = ref('')
 const topupStatus = ref<'idle' | InvoiceStatus>('idle')
 const countdown = ref<number | null>(null)
 const isAnimating = ref(false)
+const currentPeriodLabel = ref('')
 const viewportHeightCss = ref('100dvh')
 const telegramTopInsetPx = ref(0)
 const telegramBottomInsetPx = ref(0)
@@ -448,6 +449,7 @@ const showHideKeyboardFab = computed(
     showMobileChartFloats.value &&
     (keyboardFocusActive.value || keyboardViewportVisible.value),
 )
+const showPeriodLabel = computed(() => currentPeriodLabel.value !== '')
 const generationsDrawerOpen = ref(false)
 const availableGenerations = computed(() => {
   const paid = Number(sessionData.value?.user?.balance ?? 0)
@@ -824,10 +826,16 @@ const renderPreviewChart = (rawData: RawDataItem[]) => {
   const svgEl = resolveChartSvgEl()
   if (!svgEl) return
   const raw = rawData as RawRaceRow[]
-  if (raw.length === 0) return
+  if (raw.length === 0) {
+    currentPeriodLabel.value = ''
+    return
+  }
 
   const periodsOrdered = sortedPeriodsFromRaw(raw)
-  if (periodsOrdered.length === 0) return
+  if (periodsOrdered.length === 0) {
+    currentPeriodLabel.value = ''
+    return
+  }
 
   const dv = datevalues(raw, periodsOrdered)
   const namesSet = allNames(raw)
@@ -848,6 +856,7 @@ const renderPreviewChart = (rawData: RawDataItem[]) => {
     labelFill: '#334155',
     labelLayoutMode: labelLayoutMode.value,
     valueFontSizePx: VALUE_FONT_SIZE_PX,
+    periodLabelPosition: 'top',
   }
   const labelFont = `bold ${NAME_FONT_SIZE_PX}px var(--sans-serif, ui-sans-serif, system-ui, sans-serif)`
 
@@ -856,6 +865,7 @@ const renderPreviewChart = (rawData: RawDataItem[]) => {
 
   const first = keyframes[0]!
   const tickerLabel = periodLabelForKeyframeDate(first[0], dv, periodsOrdered)
+  currentPeriodLabel.value = tickerLabel
   const t = d3.select(svgEl).transition().duration(0)
   renderExplainedFrame(ctx, first, t, tickerLabel)
 }
@@ -888,6 +898,7 @@ const runBarChartRace = async (rawData: RawDataItem[], settings: ChartRenderSett
     labelFill: settings.labelColor,
     labelLayoutMode: settings.labelLayoutMode,
     valueFontSizePx: VALUE_FONT_SIZE_PX,
+    periodLabelPosition: 'top',
   }
   const labelFont = `bold ${NAME_FONT_SIZE_PX}px var(--sans-serif, ui-sans-serif, system-ui, sans-serif)`
 
@@ -898,6 +909,7 @@ const runBarChartRace = async (rawData: RawDataItem[], settings: ChartRenderSett
     if (myGen !== raceGeneration) return
     const kf = keyframes[i]!
     const tickerLabel = periodLabelForKeyframeDate(kf[0], dv, periodsOrdered)
+    currentPeriodLabel.value = tickerLabel
     const t = d3
       .select(svgEl)
       .transition()
@@ -1513,6 +1525,9 @@ onMounted(() => {
           </button>
         </div>
         <div class="relative mt-3 min-h-[480px] min-w-0 lg:min-h-[520px]">
+          <div v-if="showPeriodLabel" class="mb-1 text-right text-2xl font-bold tabular-nums text-slate-400 sm:text-3xl">
+            {{ currentPeriodLabel }}
+          </div>
           <Transition
             enter-active-class="transition duration-300 ease-out"
             enter-from-class="opacity-0 scale-95"
@@ -1596,6 +1611,9 @@ onMounted(() => {
           :style="mobilePanelBodyStyle"
           class="relative min-h-0 min-w-0 flex-1 overflow-x-hidden px-3 pt-2 sm:px-4 sm:pb-[max(5.5rem,env(safe-area-inset-bottom))] sm:pt-3"
         >
+          <div v-if="showPeriodLabel" class="mb-1 text-right text-xl font-bold tabular-nums text-slate-400 sm:text-2xl">
+            {{ currentPeriodLabel }}
+          </div>
           <Transition
             enter-active-class="transition duration-300 ease-out"
             enter-from-class="opacity-0 scale-95"
@@ -1621,7 +1639,6 @@ onMounted(() => {
             ref="svgRefMobile"
             class="h-full min-h-[240px] w-full min-w-0 max-w-full rounded-lg border border-slate-200 bg-white"
           ></svg>
-
           <div
             v-if="showMobileChartFloats"
             class="pointer-events-none absolute inset-x-0 bottom-0 top-0 z-[70]"

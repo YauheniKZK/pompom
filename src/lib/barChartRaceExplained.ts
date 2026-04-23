@@ -26,6 +26,8 @@ export type ExplainedChartOptions = {
   labelLayoutMode: 'mode1' | 'mode2' | 'mode3' | 'mode4'
   /** Размер шрифта значения */
   valueFontSizePx: number
+  /** Положение подписи периода на графике */
+  periodLabelPosition: 'top' | 'bottom'
 }
 
 /** D3: дочерний transition наследует родительский — ослабляем тип для TS */
@@ -338,15 +340,21 @@ export function ticker(
   margin: { top: number },
   n: number,
   initialLabel: string,
+  periodLabelPosition: 'top' | 'bottom',
 ) {
   return function tickerComponent(svg: d3.Selection<SVGSVGElement, unknown, null, undefined>) {
+    const yPos =
+      periodLabelPosition === 'top'
+        ? margin.top + barSize * 0.85
+        : margin.top + barSize * (n - 0.45)
+
     const now = svg
       .append('text')
       .style('font', `bold ${barSize}px var(--sans-serif, ui-sans-serif, system-ui, sans-serif)`)
       .style('font-variant-numeric', 'tabular-nums')
       .attr('text-anchor', 'end')
       .attr('x', width - 6)
-      .attr('y', margin.top + barSize * (n - 0.45))
+      .attr('y', yPos)
       .attr('dy', '0.32em')
       .text(initialLabel)
 
@@ -377,7 +385,7 @@ export type ExplainedRenderContext = {
 export function createExplainedContext(
   svgEl: SVGSVGElement,
   keyframes: [Date, RankedRow[]][],
-  periodsOrdered: string[],
+  _periodsOrdered: string[],
   options: ExplainedChartOptions,
   labelFont: string,
 ): ExplainedRenderContext | null {
@@ -411,7 +419,13 @@ export function createExplainedContext(
     options.labelLayoutMode,
     options.valueFontSizePx,
   )(svg)
-  const updateTicker = ticker(barSize, width, margin, n, periodsOrdered[0] ?? '')(svg)
+  const updateTicker = (
+    _: [Date, RankedRow[]],
+    __: d3.Transition<SVGSVGElement, unknown, null, undefined>,
+    ___: string,
+  ) => {
+    // Дата периода выводится в UI вне SVG (над/под графиком), не рисуем её на самом графике.
+  }
 
   return {
     svg,
