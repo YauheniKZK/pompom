@@ -241,6 +241,11 @@ const mobileFabStyle = computed(() => ({
   right: 'calc(max(0.75rem, env(safe-area-inset-right)) + 6px)',
 }))
 
+const mobileKeyboardFabStyle = computed(() => ({
+  bottom: `calc(max(0.75rem, env(safe-area-inset-bottom), ${tgBottomInsetCss}, ${telegramBottomInsetPx.value}px) + 10px)`,
+  left: 'calc(max(0.75rem, env(safe-area-inset-left)) + 6px)',
+}))
+
 const mobilePanelHeaderStyle = computed(() => ({
   paddingTop: `max(0.5rem, env(safe-area-inset-top), ${tgTopInsetCss}, ${telegramTopInsetPx.value}px)`,
 }))
@@ -257,6 +262,9 @@ const mobilePanelFloatsStyle = computed(() => ({
 let startTimeout: number | null = null
 let countdownInterval: number | null = null
 let postRaceFloatTimer: number | null = null
+const keyboardFocusActive = ref(false)
+const keyboardViewportVisible = ref(false)
+const keyboardViewportBaseline = ref<number>(0)
 
 function mapApiError(error: unknown): { message: string; retryable: boolean } {
   if (error instanceof ApiError) {
@@ -432,6 +440,13 @@ const mobileFloatActionsReady = ref(true)
 
 const showMobileChartFloats = computed(
   () => showChartPlay.value && mobileFloatActionsReady.value,
+)
+const showHideKeyboardFab = computed(
+  () =>
+    isMobileLayout.value &&
+    !chartPanelOpen.value &&
+    showMobileChartFloats.value &&
+    (keyboardFocusActive.value || keyboardViewportVisible.value),
 )
 const generationsDrawerOpen = ref(false)
 const availableGenerations = computed(() => {
@@ -1021,12 +1036,74 @@ const closeGenerationsDrawer = () => {
   generationsDrawerOpen.value = false
 }
 
+function isKeyboardTarget(el: Element | null): boolean {
+  if (!(el instanceof HTMLElement)) return false
+  if (el.isContentEditable) return true
+  if (el instanceof HTMLTextAreaElement) return true
+  if (el instanceof HTMLInputElement) {
+    const unsupported = new Set([
+      'button',
+      'checkbox',
+      'color',
+      'file',
+      'hidden',
+      'image',
+      'radio',
+      'range',
+      'reset',
+      'submit',
+    ])
+    return !unsupported.has(el.type)
+  }
+  return false
+}
+
+function syncKeyboardFocusState() {
+  if (typeof document === 'undefined') return
+  keyboardFocusActive.value = isKeyboardTarget(document.activeElement)
+}
+
+function syncKeyboardViewportState() {
+  if (typeof window === 'undefined' || !window.visualViewport) return
+  const height = window.visualViewport.height
+  if (!Number.isFinite(height) || height <= 0) return
+  if (keyboardViewportBaseline.value <= 0 || height > keyboardViewportBaseline.value) {
+    keyboardViewportBaseline.value = height
+  }
+  const keyboardDelta = keyboardViewportBaseline.value - height
+  keyboardViewportVisible.value = isMobileLayout.value && keyboardDelta > 140
+}
+
+function onDocumentFocusIn() {
+  syncKeyboardFocusState()
+  syncKeyboardViewportState()
+}
+
+function onDocumentFocusOut() {
+  setTimeout(() => {
+    syncKeyboardFocusState()
+    syncKeyboardViewportState()
+  }, 0)
+}
+
+function dismissKeyboard() {
+  if (typeof document === 'undefined') return
+  const active = document.activeElement
+  if (active instanceof HTMLElement && typeof active.blur === 'function') {
+    active.blur()
+  }
+  keyboardFocusActive.value = false
+}
+
 onBeforeUnmount(() => {
   raceGeneration += 1
   clearTimers()
   document.body.style.overflow = ''
   window.removeEventListener('resize', handleWindowResize)
+  window.visualViewport?.removeEventListener('resize', syncKeyboardViewportState)
   document.removeEventListener('keydown', onChartPanelKeydown)
+  document.removeEventListener('focusin', onDocumentFocusIn)
+  document.removeEventListener('focusout', onDocumentFocusOut)
   try {
     WebApp.offEvent?.('viewportChanged', syncTelegramViewportInsets)
     WebApp.BackButton.offClick(onTelegramBackClosePanel)
@@ -1038,6 +1115,7 @@ onBeforeUnmount(() => {
 
 const handleWindowResize = () => {
   syncMobileLayout()
+  syncKeyboardViewportState()
   if (isAnimating.value || countdown.value !== null) return
   void nextTick(() => renderPreviewChart(collectDataForPreview()))
 }
@@ -1083,7 +1161,12 @@ onMounted(() => {
   syncTelegramViewportInsets()
   renderPreviewChart(collectDataForPreview())
   window.addEventListener('resize', handleWindowResize)
+  window.visualViewport?.addEventListener('resize', syncKeyboardViewportState)
   document.addEventListener('keydown', onChartPanelKeydown)
+  document.addEventListener('focusin', onDocumentFocusIn)
+  document.addEventListener('focusout', onDocumentFocusOut)
+  syncKeyboardFocusState()
+  syncKeyboardViewportState()
   try {
     WebApp.onEvent?.('viewportChanged', syncTelegramViewportInsets)
   } catch {
@@ -1458,6 +1541,19 @@ onMounted(() => {
         </div>
       </section>
     </div>
+
+    <button
+      v-show="showHideKeyboardFab"
+      type="button"
+      :style="mobileKeyboardFabStyle"
+      class="fixed z-50 flex h-14 w-14 items-center justify-center rounded-full bg-slate-700 text-white shadow-lg ring-2 ring-white/20 transition hover:bg-slate-800 active:scale-95 sm:h-16 sm:w-16 lg:hidden"
+      :aria-label="t('chart.hideKeyboard')"
+      @click="dismissKeyboard"
+    >
+      <svg class="h-7 w-7 sm:h-8 sm:w-8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+        <path d="M4 7h16M6 11v3h12v-3M8 11V9m8 2V9M8 14l4 4 4-4" stroke-linecap="round" stroke-linejoin="round" />
+      </svg>
+    </button>
 
     <button
       v-show="isMobileLayout && !chartPanelOpen && showMobileChartFloats"
