@@ -1525,8 +1525,12 @@ onMounted(() => {
           </button>
         </div>
         <div class="relative mt-3 min-h-[480px] min-w-0 lg:min-h-[520px]">
-          <div v-if="showPeriodLabel" class="mb-1 text-right text-2xl font-bold tabular-nums text-slate-400 sm:text-3xl">
-            {{ currentPeriodLabel }}
+          <div v-if="showPeriodLabel" class="mb-2 flex justify-end">
+            <span
+              class="inline-flex items-center rounded-full border border-slate-300 bg-linear-to-r from-slate-100 to-slate-50 px-3 py-1 text-xl font-extrabold tabular-nums tracking-wide text-slate-800 shadow-sm sm:px-4 sm:py-1.5 sm:text-2xl"
+            >
+              {{ currentPeriodLabel }}
+            </span>
           </div>
           <Transition
             enter-active-class="transition duration-300 ease-out"
@@ -1611,8 +1615,12 @@ onMounted(() => {
           :style="mobilePanelBodyStyle"
           class="relative min-h-0 min-w-0 flex-1 overflow-x-hidden px-3 pt-2 sm:px-4 sm:pb-[max(5.5rem,env(safe-area-inset-bottom))] sm:pt-3"
         >
-          <div v-if="showPeriodLabel" class="mb-1 text-right text-xl font-bold tabular-nums text-slate-400 sm:text-2xl">
-            {{ currentPeriodLabel }}
+          <div v-if="showPeriodLabel" class="mb-2 flex justify-end">
+            <span
+              class="inline-flex items-center rounded-full border border-slate-300 bg-linear-to-r from-slate-100 to-slate-50 px-2.5 py-1 text-lg font-extrabold tabular-nums tracking-wide text-slate-800 shadow-sm sm:px-3 sm:text-xl"
+            >
+              {{ currentPeriodLabel }}
+            </span>
           </div>
           <Transition
             enter-active-class="transition duration-300 ease-out"
