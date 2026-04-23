@@ -1604,7 +1604,10 @@ onMounted(() => {
           :style="mobilePanelHeaderStyle"
           class="min-w-0 shrink-0 border-b border-slate-200 px-3 py-2.5 sm:px-4 sm:py-3"
         >
-          <h2 id="chart-panel-title" class="break-words text-base font-bold leading-snug sm:text-lg">
+          <h2
+            id="chart-panel-title"
+            class="break-words bg-linear-to-r from-slate-900 to-slate-700 bg-clip-text text-lg font-extrabold leading-snug tracking-tight text-transparent sm:text-xl"
+          >
             {{ chartTitle || t('chart.untitled') }}
           </h2>
           <p v-if="chartDescription" class="mt-0.5 break-words text-xs text-slate-600 sm:text-sm">
