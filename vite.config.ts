@@ -9,4 +9,7 @@ const base = process.env.VITE_BASE_URL ?? '/'
 export default defineConfig({
   base,
   plugins: [vue(), tailwindcss()],
+  build: {
+    sourcemap: false,
+  },
 })
