@@ -46,6 +46,9 @@ function normalizeError(status: number, detail?: string): ApiError {
   if (status === 403) {
     return new ApiError(detail || 'Доступ ограничен', { status, detail, retryable: false })
   }
+  if (status === 429) {
+    return new ApiError(detail || 'Слишком часто. Попробуйте чуть позже.', { status, detail, retryable: true })
+  }
   if (status >= 500) {
     return new ApiError('Сервис временно недоступен, попробуйте позже', {
       status,

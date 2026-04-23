@@ -91,6 +91,13 @@ type BalanceDebitResponse = {
   free_balance: number
 }
 
+type FreeBalanceTopupResponse = {
+  credited_to?: 'free_balance' | 'balance' | string
+  amount?: number
+  balance?: number
+  free_balance?: number
+}
+
 const { t, locale } = useI18n({ useScope: 'global' })
 
 function setLocale(next: AppLocale) {
@@ -111,6 +118,8 @@ const names = ref<NameItem[]>([
   { id: crypto.randomUUID(), name: 'Product D', color: '#7c3aed' },
   { id: crypto.randomUUID(), name: 'Product E', color: '#ea580c' },
   { id: crypto.randomUUID(), name: 'Product F', color: '#0f766e' },
+  { id: crypto.randomUUID(), name: 'Product G', color: '#c026d3' },
+  { id: crypto.randomUUID(), name: 'Product H', color: '#0891b2' },
 ])
 const newNameText = ref('')
 const periods = ref<PeriodForm[]>([
@@ -124,6 +133,8 @@ const periods = ref<PeriodForm[]>([
       { name: 'Product D', value: 22, period: '2019' },
       { name: 'Product E', value: 16, period: '2019' },
       { name: 'Product F', value: 11, period: '2019' },
+      { name: 'Product G', value: 9, period: '2019' },
+      { name: 'Product H', value: 13, period: '2019' },
     ],
   },
   {
@@ -136,6 +147,8 @@ const periods = ref<PeriodForm[]>([
       { name: 'Product D', value: 29, period: '2020' },
       { name: 'Product E', value: 24, period: '2020' },
       { name: 'Product F', value: 17, period: '2020' },
+      { name: 'Product G', value: 15, period: '2020' },
+      { name: 'Product H', value: 20, period: '2020' },
     ],
   },
   {
@@ -148,6 +161,8 @@ const periods = ref<PeriodForm[]>([
       { name: 'Product D', value: 36, period: '2021' },
       { name: 'Product E', value: 31, period: '2021' },
       { name: 'Product F', value: 23, period: '2021' },
+      { name: 'Product G', value: 22, period: '2021' },
+      { name: 'Product H', value: 27, period: '2021' },
     ],
   },
   {
@@ -160,6 +175,8 @@ const periods = ref<PeriodForm[]>([
       { name: 'Product D', value: 47, period: '2022' },
       { name: 'Product E', value: 40, period: '2022' },
       { name: 'Product F', value: 28, period: '2022' },
+      { name: 'Product G', value: 35, period: '2022' },
+      { name: 'Product H', value: 32, period: '2022' },
     ],
   },
   {
@@ -172,6 +189,8 @@ const periods = ref<PeriodForm[]>([
       { name: 'Product D', value: 58, period: '2023' },
       { name: 'Product E', value: 52, period: '2023' },
       { name: 'Product F', value: 39, period: '2023' },
+      { name: 'Product G', value: 44, period: '2023' },
+      { name: 'Product H', value: 41, period: '2023' },
     ],
   },
 ])
@@ -196,6 +215,7 @@ const topupPackages = ref<TopupPackage[]>([])
 const topupPayments = ref<TopupPayment[]>([])
 const topupPackagesLoading = ref(false)
 const topupActionLoading = ref(false)
+const freeBalanceTopupLoading = ref(false)
 const topupPaymentsLoading = ref(false)
 const topupError = ref('')
 const topupStatus = ref<'idle' | InvoiceStatus>('idle')
@@ -346,6 +366,33 @@ async function buyTopup(pkg: TopupPackage) {
     topupError.value = mapApiError(error).message
   } finally {
     topupActionLoading.value = false
+  }
+}
+
+async function topupFreeBalance() {
+  if (!isAdminUser.value) return
+  freeBalanceTopupLoading.value = true
+  topupError.value = ''
+  try {
+    const data = await apiPost<FreeBalanceTopupResponse, Record<string, never>>('/api/free-balance/topup', {})
+    const currentSession = sessionData.value
+    const currentUser = currentSession?.user
+    if (currentSession && currentUser && Number.isFinite(Number(data.balance)) && Number.isFinite(Number(data.free_balance))) {
+      sessionData.value = {
+        ...currentSession,
+        user: {
+          ...currentUser,
+          balance: Number(data.balance),
+          free_balance: Number(data.free_balance),
+        },
+      }
+    } else {
+      await loadSession()
+    }
+  } catch (error) {
+    topupError.value = mapApiError(error).message
+  } finally {
+    freeBalanceTopupLoading.value = false
   }
 }
 
@@ -1153,24 +1200,7 @@ onMounted(() => {
           <p class="mb-2 text-[11px] text-slate-500 sm:mb-3 sm:text-xs">
             {{ t('chart.labelLayoutHelp') }}
           </p>
-          <div class="grid min-w-0 gap-2 sm:grid-cols-2 sm:gap-3">
-            <label
-              class="flex min-w-0 cursor-pointer items-start gap-2 rounded-xl border p-3 transition sm:gap-3 sm:p-3.5"
-              :class="
-                labelLayoutMode === 'mode3'
-                  ? 'border-blue-500 bg-blue-50'
-                  : 'border-slate-300 bg-white hover:border-slate-400'
-              "
-            >
-              <input v-model="labelLayoutMode" type="radio" value="mode3" class="mt-0.5 h-3.5 w-3.5 sm:mt-1 sm:h-4 sm:w-4" />
-              <span class="min-w-0 flex-1 text-xs leading-snug text-slate-700 sm:text-sm">
-                <span class="block font-semibold text-slate-900">{{ t('chart.right') }}</span>
-                <span class="mt-0.5 block text-[11px] text-slate-500 sm:text-xs">
-                  {{ t('chart.rightDesc') }}
-                </span>
-              </span>
-            </label>
-
+          <div class="grid min-w-0 grid-cols-2 gap-2 sm:gap-3">
             <label
               class="flex min-w-0 cursor-pointer items-start gap-2 rounded-xl border p-3 transition sm:gap-3 sm:p-3.5"
               :class="
@@ -1182,9 +1212,20 @@ onMounted(() => {
               <input v-model="labelLayoutMode" type="radio" value="mode4" class="mt-0.5 h-3.5 w-3.5 sm:mt-1 sm:h-4 sm:w-4" />
               <span class="min-w-0 flex-1 text-xs leading-snug text-slate-700 sm:text-sm">
                 <span class="block font-semibold text-slate-900">{{ t('chart.left') }}</span>
-                <span class="mt-0.5 block text-[11px] text-slate-500 sm:text-xs">
-                  {{ t('chart.leftDesc') }}
-                </span>
+              </span>
+            </label>
+
+            <label
+              class="flex min-w-0 cursor-pointer items-start gap-2 rounded-xl border p-3 transition sm:gap-3 sm:p-3.5"
+              :class="
+                labelLayoutMode === 'mode3'
+                  ? 'border-blue-500 bg-blue-50'
+                  : 'border-slate-300 bg-white hover:border-slate-400'
+              "
+            >
+              <input v-model="labelLayoutMode" type="radio" value="mode3" class="mt-0.5 h-3.5 w-3.5 sm:mt-1 sm:h-4 sm:w-4" />
+              <span class="min-w-0 flex-1 text-xs leading-snug text-slate-700 sm:text-sm">
+                <span class="block font-semibold text-slate-900">{{ t('chart.right') }}</span>
               </span>
             </label>
           </div>
@@ -1558,6 +1599,15 @@ onMounted(() => {
           <div class="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
             <p class="text-[11px] text-slate-500">{{ t('chart.balanceFree') }}</p>
             <p class="text-sm font-semibold text-slate-900">{{ freeBalance }}</p>
+            <button
+              v-if="isAdminUser"
+              type="button"
+              class="mt-1.5 rounded-md border border-slate-300 bg-white px-2 py-1 text-[11px] font-medium text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+              :disabled="freeBalanceTopupLoading || topupActionLoading"
+              @click="topupFreeBalance"
+            >
+              {{ freeBalanceTopupLoading ? t('chart.adminFreeTopupLoading') : t('chart.adminFreeTopupButton') }}
+            </button>
           </div>
         </div>
 
