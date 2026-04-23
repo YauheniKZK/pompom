@@ -327,7 +327,7 @@ async function loadTopupPackages() {
 async function loadTopupPayments(limit = 20) {
   topupPaymentsLoading.value = true
   try {
-    const data = await apiGet<TopupPayment[]>('/api/topup/payments', { limit })
+    const data = await apiPost<TopupPayment[], { limit: number }>('/api/topup/payments', { limit })
     topupPayments.value = Array.isArray(data) ? data : []
   } catch (error) {
     topupError.value = mapApiError(error).message

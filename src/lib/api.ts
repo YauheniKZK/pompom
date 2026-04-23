@@ -19,6 +19,7 @@ export class ApiError extends Error {
 
 const BASE_URL = String(import.meta.env.VITE_APP_REST_ENDPOINT ?? '').replace(/\/+$/, '')
 const SESSION_OPEN_PATH = '/api/session/open'
+const REQUEST_TIMEOUT_MS = 15000
 const TOKEN_REQUIRED_PATHS = new Set([
   '/api/balance/debit',
   '/api/free-balance/topup',
@@ -32,6 +33,16 @@ let refreshPromise: Promise<void> | null = null
 export function getApiBaseUrlOrThrow(): string {
   if (!BASE_URL) {
     throw new ApiError('VITE_APP_REST_ENDPOINT is not configured', { retryable: false })
+  }
+  let parsed: URL
+  try {
+    parsed = new URL(BASE_URL)
+  } catch {
+    throw new ApiError('VITE_APP_REST_ENDPOINT is invalid', { retryable: false })
+  }
+  const isLocalhost = parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1'
+  if (parsed.protocol !== 'https:' && !isLocalhost) {
+    throw new ApiError('VITE_APP_REST_ENDPOINT must use HTTPS', { retryable: false })
   }
   return BASE_URL
 }
@@ -137,13 +148,26 @@ function isExpiredAuthTokenError(error: unknown): boolean {
   return error instanceof ApiError && error.status === 401 && error.detail === 'Invalid or expired app auth token'
 }
 
+function isMissingAuthTokenError(error: unknown): boolean {
+  return error instanceof ApiError && error.status === 401 && error.detail === 'Missing X-App-Auth-Token'
+}
+
 async function fetchWithApiError(url: string, init: RequestInit): Promise<Response> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
   try {
-    return await fetch(url, init)
-  } catch {
+    return await fetch(url, { ...init, signal: controller.signal })
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      throw new ApiError('Превышено время ожидания ответа сервера. Попробуйте снова.', {
+        retryable: true,
+      })
+    }
     throw new ApiError('Сетевая ошибка. Проверьте подключение и попробуйте снова.', {
       retryable: true,
     })
+  } finally {
+    clearTimeout(timer)
   }
 }
 
@@ -196,7 +220,17 @@ async function executeRequest<TResponse>(
     }
     return data
   } catch (error) {
-    if (retryOnExpiredToken && needsToken && isExpiredAuthTokenError(error)) {
+    if (error instanceof ApiError && error.status === 401 && error.detail === 'initData hash verification failed') {
+      appAuthToken = null
+      throw new ApiError('Сессия Telegram истекла. Переоткройте Mini App.', {
+        status: 401,
+        detail: error.detail,
+        retryable: false,
+      })
+    }
+
+    if (retryOnExpiredToken && needsToken && (isExpiredAuthTokenError(error) || isMissingAuthTokenError(error))) {
+      appAuthToken = null
       await refreshAppAuthToken()
       return executeRequest<TResponse>(path, init, withInitData, false)
     }
