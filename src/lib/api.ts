@@ -28,6 +28,7 @@ const TOKEN_REQUIRED_PATHS = new Set([
 ])
 
 let appAuthToken: string | null = null
+let appAuthTokenExpiresAtMs: number | null = null
 let refreshPromise: Promise<void> | null = null
 
 export function getApiBaseUrlOrThrow(): string {
@@ -98,6 +99,12 @@ function setTokenFromResponse(data: unknown) {
   if (!('auth_token' in data)) return
   const token = String((data as { auth_token?: unknown }).auth_token ?? '').trim()
   appAuthToken = token || null
+  const ttlSecondsRaw = Number((data as { auth_token_ttl_seconds?: unknown }).auth_token_ttl_seconds)
+  if (appAuthToken && Number.isFinite(ttlSecondsRaw) && ttlSecondsRaw > 0) {
+    appAuthTokenExpiresAtMs = Date.now() + ttlSecondsRaw * 1000
+  } else {
+    appAuthTokenExpiresAtMs = null
+  }
 }
 
 async function refreshAppAuthToken() {
@@ -145,11 +152,32 @@ async function refreshAppAuthToken() {
 }
 
 function isExpiredAuthTokenError(error: unknown): boolean {
-  return error instanceof ApiError && error.status === 401 && error.detail === 'Invalid or expired app auth token'
+  if (!(error instanceof ApiError) || error.status !== 401) return false
+  const text = `${error.detail ?? ''} ${error.message}`.toLowerCase()
+  return text.includes('app auth token') && (text.includes('invalid') || text.includes('expired'))
 }
 
 function isMissingAuthTokenError(error: unknown): boolean {
-  return error instanceof ApiError && error.status === 401 && error.detail === 'Missing X-App-Auth-Token'
+  if (!(error instanceof ApiError) || error.status !== 401) return false
+  const text = `${error.detail ?? ''} ${error.message}`.toLowerCase()
+  return text.includes('missing') && text.includes('x-app-auth-token')
+}
+
+function isInitDataHashError(error: unknown): boolean {
+  if (!(error instanceof ApiError) || error.status !== 401) return false
+  const text = `${error.detail ?? ''} ${error.message}`.toLowerCase()
+  return text.includes('initdata') && text.includes('hash') && text.includes('failed')
+}
+
+function clearAppAuthToken() {
+  appAuthToken = null
+  appAuthTokenExpiresAtMs = null
+}
+
+function isTokenExpiredOrNearExpiry() {
+  if (!appAuthToken) return true
+  if (!appAuthTokenExpiresAtMs) return false
+  return Date.now() + 5000 >= appAuthTokenExpiresAtMs
 }
 
 async function fetchWithApiError(url: string, init: RequestInit): Promise<Response> {
@@ -178,7 +206,7 @@ async function executeRequest<TResponse>(
   retryOnExpiredToken = true,
 ): Promise<TResponse> {
   const needsToken = shouldAttachAuthToken(path)
-  if (needsToken && !appAuthToken) {
+  if (needsToken && isTokenExpiredOrNearExpiry()) {
     await refreshAppAuthToken()
   }
 
@@ -220,17 +248,17 @@ async function executeRequest<TResponse>(
     }
     return data
   } catch (error) {
-    if (error instanceof ApiError && error.status === 401 && error.detail === 'initData hash verification failed') {
-      appAuthToken = null
+    if (isInitDataHashError(error)) {
+      clearAppAuthToken()
       throw new ApiError('Сессия Telegram истекла. Переоткройте Mini App.', {
         status: 401,
-        detail: error.detail,
+        detail: error instanceof ApiError ? error.detail : '',
         retryable: false,
       })
     }
 
     if (retryOnExpiredToken && needsToken && (isExpiredAuthTokenError(error) || isMissingAuthTokenError(error))) {
-      appAuthToken = null
+      clearAppAuthToken()
       await refreshAppAuthToken()
       return executeRequest<TResponse>(path, init, withInitData, false)
     }
@@ -249,7 +277,15 @@ async function parseResponse<T>(res: Response): Promise<T> {
     }
   }
   if (res.ok) return data as T
-  const detail = typeof data === 'object' && data && 'detail' in data ? String((data as { detail?: unknown }).detail ?? '') : ''
+  const detail =
+    typeof data === 'object' && data
+      ? String(
+          (data as { detail?: unknown; message?: unknown; error?: unknown }).detail ??
+            (data as { message?: unknown }).message ??
+            (data as { error?: unknown }).error ??
+            '',
+        )
+      : ''
   throw normalizeError(res.status, detail)
 }
 
