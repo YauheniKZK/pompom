@@ -89,7 +89,7 @@ export const messages = {
       playReminderCancel: 'Отменить',
       playDebitInsufficient: 'Недостаточно генераций на балансе.',
       playDebitPreviewFreeLine: 'Будет списано 1 из Free. Остаток сейчас: {free}.',
-      playDebitPreviewPaidLine: 'Будет списано 1.',
+      playDebitPreviewPaidLine: 'Будет списано 1 из Доступно. Остаток сейчас: {paid}.',
       generationsAriaLabel: 'Доступные генерации',
       generationsPurchaseTitle: 'Покупка генераций',
       generationUnitOne: 'генерация',
