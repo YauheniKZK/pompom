@@ -217,11 +217,11 @@ export function bars(
       const start = x(0);
       const end = x(d.value);
       const rightAligned = end - size - iconPadding;
-      return Math.max(start + iconPadding, rightAligned);
+      return Math.round(Math.max(start + iconPadding, rightAligned));
     };
     const iconY = (d: RankedRow) => {
       const size = iconSize();
-      return (y(String(d.rank)) ?? 0) + (y.bandwidth() - size) / 2;
+      return Math.round((y(String(d.rank)) ?? 0) + (y.bandwidth() - size) / 2);
     };
 
     return function update(
@@ -242,13 +242,17 @@ export function bars(
         .enter()
         .append("clipPath")
         .attr("id", (d) => clipIdForName(d.name));
-      iconClipPathsEnter
+      const iconClipRects = iconClipPathsEnter
         .append("rect")
         .merge(iconClipPaths.select("rect"))
         .attr("rx", 5)
         .attr("ry", 5)
         .attr("width", () => iconSize())
         .attr("height", () => iconSize())
+        .attr("x", (d) => iconX(prev.get(d) ?? d))
+        .attr("y", (d) => iconY(prev.get(d) ?? d));
+      iconClipRects
+        .transition(sub)
         .attr("x", (d) => iconX(d))
         .attr("y", (d) => iconY(d));
 
