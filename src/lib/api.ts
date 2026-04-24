@@ -31,6 +31,21 @@ let appAuthToken: string | null = null
 let appAuthTokenExpiresAtMs: number | null = null
 let refreshPromise: Promise<void> | null = null
 
+async function waitForInitDataOrThrow(timeoutMs = 2500, stepMs = 120): Promise<string> {
+  const startedAt = Date.now()
+  let lastError: unknown = null
+  while (Date.now() - startedAt < timeoutMs) {
+    try {
+      return getInitDataOrThrow()
+    } catch (error) {
+      lastError = error
+      await new Promise((resolve) => setTimeout(resolve, stepMs))
+    }
+  }
+  if (lastError instanceof Error) throw lastError
+  throw new ApiError('Open this app inside Telegram Mini App', { retryable: false })
+}
+
 export function getApiBaseUrlOrThrow(): string {
   if (!BASE_URL) {
     throw new ApiError('VITE_APP_REST_ENDPOINT is not configured', { retryable: false })
@@ -116,7 +131,7 @@ async function refreshAppAuthToken() {
   refreshPromise = (async () => {
     let initData: string
     try {
-      initData = getInitDataOrThrow()
+      initData = await waitForInitDataOrThrow()
     } catch {
       throw new ApiError('Open this app inside Telegram Mini App', { retryable: false })
     }
@@ -219,7 +234,7 @@ async function executeRequest<TResponse>(
   let body = init.body
   let initData: string
   try {
-    initData = getInitDataOrThrow()
+    initData = await waitForInitDataOrThrow()
   } catch {
     throw new ApiError('Open this app inside Telegram Mini App', { retryable: false })
   }

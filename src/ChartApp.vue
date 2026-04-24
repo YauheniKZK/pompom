@@ -289,7 +289,12 @@ async function loadSession() {
   bootstrapLoading.value = true
   bootstrapError.value = ''
   try {
-    readyAndExpand()
+    try {
+      readyAndExpand()
+    } catch {
+      // Если Telegram WebApp API еще не инициализировался после reload,
+      // apiPost сам дождется init_data в api.ts.
+    }
     const data = await apiPost<SessionOpenResponse, { profile_id: null }>('/api/session/open', {
       profile_id: null,
     })
@@ -754,7 +759,53 @@ const clearNameImage = (nameId: string) => {
   }
 }
 
-const onNameImageFile = (e: Event) => {
+function fileToDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result ?? ''))
+    reader.onerror = () => reject(new Error('Failed to read image file'))
+    reader.readAsDataURL(file)
+  })
+}
+
+function imageFromObjectUrl(objectUrl: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image()
+    img.onload = () => resolve(img)
+    img.onerror = () => reject(new Error('Failed to decode image'))
+    img.src = objectUrl
+  })
+}
+
+async function optimizeImageForPreview(file: File): Promise<string> {
+  try {
+    const objectUrl = URL.createObjectURL(file)
+    const img = await imageFromObjectUrl(objectUrl)
+    URL.revokeObjectURL(objectUrl)
+
+    const maxSide = 256
+    const scale = Math.min(1, maxSide / Math.max(img.width, img.height))
+    const targetW = Math.max(1, Math.round(img.width * scale))
+    const targetH = Math.max(1, Math.round(img.height * scale))
+
+    const canvas = document.createElement('canvas')
+    canvas.width = targetW
+    canvas.height = targetH
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return await fileToDataUrl(file)
+    ctx.drawImage(img, 0, 0, targetW, targetH)
+
+    const blob = await new Promise<Blob | null>((resolve) =>
+      canvas.toBlob(resolve, 'image/jpeg', 0.82),
+    )
+    if (!blob) return await fileToDataUrl(file)
+    return await fileToDataUrl(new File([blob], `${file.name}.jpg`, { type: 'image/jpeg' }))
+  } catch {
+    return await fileToDataUrl(file)
+  }
+}
+
+const onNameImageFile = async (e: Event) => {
   waitingNameImageSelection = false
   imagePickerFocusCleanup?.()
   const input = e.target as HTMLInputElement
@@ -770,9 +821,8 @@ const onNameImageFile = (e: Event) => {
   }
   const targetId = pendingNameImageId.value
   pendingNameImageId.value = ''
-  const reader = new FileReader()
-  reader.onload = () => {
-    const result = String(reader.result ?? '')
+  try {
+    const result = await optimizeImageForPreview(file)
     if (!result) {
       pendingNameImageId.value = ''
       return
@@ -786,12 +836,11 @@ const onNameImageFile = (e: Event) => {
     if (!isAnimating.value && countdown.value === null) {
       renderPreviewChart(collectDataForPreview())
     }
+  } catch {
     pendingNameImageId.value = ''
+    return
   }
-  reader.onerror = () => {
-    pendingNameImageId.value = ''
-  }
-  reader.readAsDataURL(file)
+  pendingNameImageId.value = ''
 }
 
 const onCsvFile = (e: Event) => {
