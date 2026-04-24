@@ -176,7 +176,9 @@ export function bars(
       .attr('fill-opacity', 0.6)
       .selectAll<SVGRectElement, RankedRow>('rect')
     let barIcons = svg.append('g').selectAll<SVGImageElement, RankedRow>('image')
-    let iconClipRects = svg.append('defs').selectAll<SVGRectElement, RankedRow>('clipPath > rect')
+    let iconClipRects: d3.Selection<SVGRectElement, RankedRow, d3.BaseType, unknown> = svg
+      .append('defs')
+      .selectAll<SVGRectElement, RankedRow>('clipPath > rect')
 
     const iconPadding = 4
     const iconSize = () => iconSizePx
