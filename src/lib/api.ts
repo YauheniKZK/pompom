@@ -181,7 +181,10 @@ function isMissingAuthTokenError(error: unknown): boolean {
 function isInitDataHashError(error: unknown): boolean {
   if (!(error instanceof ApiError) || error.status !== 401) return false
   const text = `${error.detail ?? ''} ${error.message}`.toLowerCase()
-  return text.includes('initdata') && text.includes('hash') && text.includes('failed')
+  const hasInitDataMention = text.includes('initdata') || text.includes('init_data')
+  const hasHashFailed = text.includes('hash') && text.includes('failed')
+  const hasExpired = text.includes('expired') && text.includes('init')
+  return hasInitDataMention && (hasHashFailed || hasExpired)
 }
 
 function clearAppAuthToken() {

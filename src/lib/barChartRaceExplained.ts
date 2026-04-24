@@ -193,11 +193,15 @@ export function bars(
     svg: d3.Selection<SVGSVGElement, unknown, null, undefined>,
   ) {
     const clipPrefix = `bar-icon-clip-${Math.random().toString(36).slice(2, 10)}`;
-    const clipIdForName = (name: string) =>
-      `${clipPrefix}-${name
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, "-")
-        .replace(/^-+|-+$/g, "") || "item"}`;
+    const nameHash = (name: string) => {
+      let h = 2166136261;
+      for (let i = 0; i < name.length; i++) {
+        h ^= name.charCodeAt(i);
+        h = Math.imul(h, 16777619);
+      }
+      return (h >>> 0).toString(36);
+    };
+    const clipIdForName = (name: string) => `${clipPrefix}-${nameHash(name)}`;
     const defs = svg.append("defs");
     let bar = svg
       .append("g")
@@ -205,8 +209,6 @@ export function bars(
       .selectAll<SVGRectElement, RankedRow>("rect");
     const barIconsLayer = svg.append("g").attr("class", "bar-icons-layer");
     let barIcons = barIconsLayer.selectAll<SVGImageElement, RankedRow>("image");
-    let iconClipRects: d3.Selection<SVGRectElement, RankedRow, d3.BaseType, unknown> =
-      defs.selectAll<SVGRectElement, RankedRow>("clipPath > rect");
 
     const iconPadding = 4;
     const iconSize = () => iconSizePx;
@@ -240,17 +242,11 @@ export function bars(
         .enter()
         .append("clipPath")
         .attr("id", (d) => clipIdForName(d.name));
-      iconClipRects = iconClipPathsEnter
+      iconClipPathsEnter
         .append("rect")
         .merge(iconClipPaths.select("rect"))
         .attr("rx", 5)
         .attr("ry", 5)
-        .attr("width", () => iconSize())
-        .attr("height", () => iconSize())
-        .attr("x", (d) => iconX(d))
-        .attr("y", (d) => iconY(d));
-      iconClipRects
-        .transition(sub)
         .attr("width", () => iconSize())
         .attr("height", () => iconSize())
         .attr("x", (d) => iconX(d))
