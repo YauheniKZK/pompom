@@ -1,7 +1,7 @@
 {
-  "name": "bottest2",
+  "name": "postigator-lab",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.0.1",
   "type": "module",
   "scripts": {
     "dev": "vite --port 5190",
