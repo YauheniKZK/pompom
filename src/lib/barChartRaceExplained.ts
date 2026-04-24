@@ -180,9 +180,7 @@ export function bars(
       .attr('fill-opacity', 0.6)
       .selectAll<SVGRectElement, RankedRow>('rect')
     let barIcons = svg.append('g').selectAll<SVGImageElement, RankedRow>('image')
-    let iconClipRects: d3.Selection<SVGRectElement, RankedRow, d3.BaseType, unknown> = svg
-      .append('defs')
-      .selectAll<SVGRectElement, RankedRow>('clipPath > rect')
+    const defs = svg.append('defs')
 
     const iconPadding = 4
     const iconSize = () => iconSizePx
@@ -264,26 +262,20 @@ export function bars(
         )
 
       const iconData = data.slice(0, n).filter((d) => Boolean(imageForName?.(d.name)))
-      const iconClipPaths = svg
-        .select('defs')
-        .selectAll<SVGClipPathElement, RankedRow>('clipPath')
+      const iconClipPaths = defs
+        .selectAll<SVGClipPathElement, RankedRow>('clipPath.bar-icon-clip')
         .data(iconData, (d) => d.name)
       iconClipPaths.exit().remove()
       const iconClipPathsEnter = iconClipPaths
         .enter()
         .append('clipPath')
+        .attr('class', 'bar-icon-clip')
         .attr('id', (d) => clipIdForName(d.name))
-      iconClipRects = iconClipPathsEnter
+      iconClipPathsEnter
         .append('rect')
         .merge(iconClipPaths.select('rect'))
         .attr('rx', 5)
         .attr('ry', 5)
-        .attr('width', () => iconSize())
-        .attr('height', () => iconSize())
-        .attr('x', (d) => iconX(d))
-        .attr('y', (d) => iconY(d))
-      iconClipRects
-        .transition(sub)
         .attr('width', () => iconSize())
         .attr('height', () => iconSize())
         .attr('x', (d) => iconX(d))
