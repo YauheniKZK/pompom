@@ -4,12 +4,14 @@ export type RawRaceRow = {
   name: string
   value: number
   period: string
+  category?: string
 }
 
 export type RankedRow = {
   name: string
   value: number
   rank: number
+  category?: string
 }
 
 export type ExplainedChartOptions = {
@@ -30,6 +32,8 @@ export type ExplainedChartOptions = {
   periodLabelPosition: 'top' | 'bottom'
   /** URL картинки для имени (если есть) */
   imageForName?: (name: string) => string | undefined
+  /** Категория для имени (если есть) */
+  categoryForName?: (name: string) => string | undefined
   /** Префикс перед значением (например "$") */
   valuePrefix?: string
 }
@@ -67,12 +71,17 @@ export function datevalues(
   })
 }
 
-export function rankFactory(names: Set<string>, n: number) {
+export function rankFactory(
+  names: Set<string>,
+  n: number,
+  categoryForName?: (name: string) => string | undefined,
+) {
   return function rank(value: (name: string) => number): RankedRow[] {
     const data: RankedRow[] = Array.from(names, (name) => ({
       name,
       value: value(name),
       rank: 0,
+      category: categoryForName?.(name),
     }))
     data.sort((a, b) => d3.descending(a.value, b.value))
     for (let i = 0; i < data.length; ++i) data[i].rank = Math.min(n, i)
@@ -307,6 +316,7 @@ export function labels(
   valueFontSizePx: number,
   iconSizePx: number,
   imageForName?: (name: string) => string | undefined,
+  categoryForName?: (name: string) => string | undefined,
 ) {
   return function labelsComponent(svg: d3.Selection<SVGSVGElement, unknown, null, undefined>) {
     const isLeftMode = labelLayoutMode === 'mode4'
@@ -326,8 +336,6 @@ export function labels(
     }
     const labelTransform = (d: RankedRow) => `translate(${labelX(d)},${y(String(d.rank))})`
 
-    const valueDy = isStacked ? '1.15em' : '0em'
-    const valueDx = isSingleLine ? '0.55em' : '0em'
     let label = svg
       .append('g')
       .style('font', labelFont)
@@ -359,17 +367,36 @@ export function labels(
               .attr('y', y.bandwidth() / 2)
               .attr('x', xOffset)
               .attr('dy', '-0.25em')
-              .text((d) => (isSingleLine ? `${d.name}` : d.name))
+              .text('')
               .call((text) =>
                 text
                   .append('tspan')
+                  .attr('class', 'category-part')
+                  .attr('fill', labelFill)
+                  .attr('font-weight', 'normal')
+                  .style('font-size', `${Math.max(10, Math.round(valueFontSizePx * 0.9))}px`)
+                  .text((d) => {
+                    const category = (categoryForName?.(d.name) ?? d.category ?? '').trim()
+                    return category ? `(${category}) ` : ''
+                  }),
+              )
+              .call((text) =>
+                text
+                  .append('tspan')
+                  .attr('class', 'name-part')
+                  .text((d) => d.name),
+              )
+              .call((text) =>
+                text
+                  .append('tspan')
+                  .attr('class', 'value-part')
                   .attr('fill', labelFill)
                   .attr('fill-opacity', 0.7)
                   .attr('font-weight', 'normal')
                   .style('font-size', `${valueFontSizePx}px`)
                   .attr('x', xOffset)
-                  .attr('dx', valueDx)
-                  .attr('dy', valueDy)
+                  .attr('dx', isSingleLine ? '0.55em' : '0em')
+                  .attr('dy', isSingleLine ? '0em' : isStacked ? '1.15em' : '0em')
                   .text((d) => (isSingleLine ? formatNumber(d.value) : '')),
               ),
           (update) => update,
@@ -386,7 +413,7 @@ export function labels(
                   }),
               )
               .call((g) =>
-                g.select('tspan').textTween(
+                g.select('tspan.value-part').textTween(
                   (d) =>
                     ((t: number) =>
                       formatNumber(d3.interpolateNumber(d.value, (next.get(d) ?? d).value)(t))) as unknown as (
@@ -400,7 +427,7 @@ export function labels(
             .transition(sub)
             .attr('transform', (d) => labelTransform(d))
             .call((g) =>
-              g.select('tspan').textTween((d) => {
+              g.select('tspan.value-part').textTween((d) => {
                 const i = d3.interpolateNumber((prev.get(d) ?? d).value, d.value)
                 return (t: number) => formatNumber(i(t))
               }),
@@ -528,6 +555,7 @@ export function createExplainedContext(
     options.valueFontSizePx,
     iconSizePx,
     options.imageForName,
+    options.categoryForName,
   )(svg)
   const updateTicker = (
     _: [Date, RankedRow[]],

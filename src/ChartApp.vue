@@ -25,6 +25,7 @@ type RawDataItem = {
   name: string
   value: number
   period: string
+  category?: string
 }
 
 type LabelLayoutMode = 'mode1' | 'mode2' | 'mode3' | 'mode4'
@@ -34,6 +35,7 @@ type NameItem = {
   name: string
   color: string
   imageUrl?: string
+  category?: string
 }
 
 type PeriodForm = {
@@ -584,6 +586,7 @@ const selectedPeriod = computed(() =>
 const getNameByName = (name: string) => names.value.find((item) => item.name === name)
 const getBarColor = (name: string) => getNameByName(name)?.color ?? '#64748b'
 const getBarImage = (name: string) => getNameByName(name)?.imageUrl
+const getBarCategory = (name: string) => getNameByName(name)?.category
 
 const randomColor = () =>
   `#${Math.floor(Math.random() * 0xffffff)
@@ -809,7 +812,10 @@ const onCsvFile = (e: Event) => {
     valuePrefix.value = (res.symbol ?? '').trim()
     periods.value = res.periods.map((p) => ({
       ...p,
-      values: p.values.map((v) => ({ ...v })),
+      values: p.values.map((v) => ({
+        ...v,
+        category: names.value.find((n) => n.name === v.name)?.category,
+      })),
     }))
     selectedPeriodId.value = periods.value[0]?.id ?? ''
     errorMessage.value = ''
@@ -918,7 +924,7 @@ const renderPreviewChart = (rawData: RawDataItem[]) => {
   const dv = datevalues(raw, periodsOrdered)
   const namesSet = allNames(raw)
   const topN = Math.min(12, Math.max(1, namesSet.size))
-  const rank = rankFactory(namesSet, topN)
+  const rank = rankFactory(namesSet, topN, getBarCategory)
   const keyframes = buildKeyframes(dv, keyframeSteps, rank)
   if (keyframes.length === 0) return
 
@@ -932,6 +938,7 @@ const renderPreviewChart = (rawData: RawDataItem[]) => {
     margin: explainedMargin,
     color: getBarColor,
     imageForName: getBarImage,
+    categoryForName: getBarCategory,
     valuePrefix: valuePrefix.value,
     labelFill: '#334155',
     labelLayoutMode: labelLayoutMode.value,
@@ -962,7 +969,7 @@ const runBarChartRace = async (rawData: RawDataItem[], settings: ChartRenderSett
   const dv = datevalues(raw, periodsOrdered)
   const namesSet = allNames(raw)
   const topN = Math.min(12, Math.max(1, namesSet.size))
-  const rank = rankFactory(namesSet, topN)
+  const rank = rankFactory(namesSet, topN, getBarCategory)
   const keyframes = buildKeyframes(dv, keyframeSteps, rank)
   if (keyframes.length === 0) return
 
@@ -976,6 +983,7 @@ const runBarChartRace = async (rawData: RawDataItem[], settings: ChartRenderSett
     margin: explainedMargin,
     color: getBarColor,
     imageForName: getBarImage,
+    categoryForName: getBarCategory,
     valuePrefix: valuePrefix.value,
     labelFill: settings.labelColor,
     labelLayoutMode: settings.labelLayoutMode,

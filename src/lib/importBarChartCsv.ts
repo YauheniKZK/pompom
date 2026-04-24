@@ -5,6 +5,7 @@ export type ImportedNameItem = {
   id: string
   name: string
   color: string
+  category?: string
 }
 
 export type ImportedPeriodForm = {
@@ -423,7 +424,7 @@ export function importBarChartRaceCsv(csvText: string, locale: AppLocale = 'ru')
       cat !== undefined && categories.length > 0
         ? colorByCategory(cat)
         : `hsl(${hashHue(name)} 65% 45%)`
-    return { id: crypto.randomUUID(), name, color }
+    return { id: crypto.randomUUID(), name, color, category: cat }
   })
   console.info('[csv-import] result summary', {
     namesCount: names.length,
