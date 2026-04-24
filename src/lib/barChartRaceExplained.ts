@@ -166,11 +166,15 @@ export function bars(
 ) {
   return function barsComponent(svg: d3.Selection<SVGSVGElement, unknown, null, undefined>) {
     const clipPrefix = `bar-icon-clip-${Math.random().toString(36).slice(2, 10)}`
-    const clipIdForName = (name: string) =>
-      `${clipPrefix}-${name
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, '-')
-        .replace(/^-+|-+$/g, '') || 'item'}`
+    const nameHash = (name: string) => {
+      let h = 2166136261
+      for (let i = 0; i < name.length; i++) {
+        h ^= name.charCodeAt(i)
+        h = Math.imul(h, 16777619)
+      }
+      return (h >>> 0).toString(36)
+    }
+    const clipIdForName = (name: string) => `${clipPrefix}-${nameHash(name)}`
     let bar = svg
       .append('g')
       .attr('fill-opacity', 0.6)
