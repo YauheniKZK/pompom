@@ -57,6 +57,36 @@ function stripBom(text: string) {
   return text.charCodeAt(0) === 0xfeff ? text.slice(1) : text
 }
 
+function countDelimiter(line: string, delimiter: string) {
+  return line.split(delimiter).length - 1
+}
+
+function detectDelimiter(line: string): ',' | ';' | '\t' {
+  const candidates: Array<',' | ';' | '\t'> = [',', ';', '\t']
+  let best: ',' | ';' | '\t' = ','
+  let bestCount = -1
+  for (const candidate of candidates) {
+    const count = countDelimiter(line, candidate)
+    if (count > bestCount) {
+      best = candidate
+      bestCount = count
+    }
+  }
+  return best
+}
+
+function preprocessCsvText(text: string) {
+  const lines = text.split(/\r?\n/)
+  const first = lines[0]?.trim() ?? ''
+  const second = lines[1]?.trim() ?? ''
+  const delimiter = detectDelimiter(second || first)
+  const firstHasDelimiter = first.includes(delimiter)
+  const secondHasDelimiter = second.includes(delimiter)
+  const shouldDropFirstLine = Boolean(first && !firstHasDelimiter && secondHasDelimiter)
+  const normalizedText = shouldDropFirstLine ? lines.slice(1).join('\n') : text
+  return { normalizedText, delimiter, shouldDropFirstLine, first, second }
+}
+
 function findColumn(row: Record<string, unknown>, candidates: string[]): string | undefined {
   const keys = Object.keys(row)
   for (const c of candidates) {
@@ -69,8 +99,131 @@ function findColumn(row: Record<string, unknown>, candidates: string[]): string 
 function toNumber(v: unknown): number | null {
   if (v === null || v === undefined || v === '') return null
   if (typeof v === 'number' && Number.isFinite(v)) return v
-  const n = Number(String(v).replace(/\s/g, '').replace(',', '.'))
+  const raw = String(v).trim()
+  const tokenMatch = raw.match(/[-+]?\d[\d\s.,]*/)
+  if (!tokenMatch) return null
+
+  let token = tokenMatch[0].replace(/\s+/g, '')
+  const commaCount = (token.match(/,/g) ?? []).length
+  const dotCount = (token.match(/\./g) ?? []).length
+
+  if (commaCount > 0 && dotCount > 0) {
+    const lastComma = token.lastIndexOf(',')
+    const lastDot = token.lastIndexOf('.')
+    if (lastComma > lastDot) {
+      token = token.replace(/\./g, '').replace(',', '.')
+    } else {
+      token = token.replace(/,/g, '')
+    }
+  } else if (commaCount > 0) {
+    if (commaCount > 1) {
+      token = token.replace(/,/g, '')
+    } else {
+      const fractionLen = token.length - token.lastIndexOf(',') - 1
+      token = fractionLen >= 1 && fractionLen <= 2 ? token.replace(',', '.') : token.replace(/,/g, '')
+    }
+  } else if (dotCount > 0) {
+    if (dotCount > 1) {
+      token = token.replace(/\./g, '')
+    } else {
+      const fractionLen = token.length - token.lastIndexOf('.') - 1
+      if (fractionLen !== 3) {
+        // Single dot is likely decimal separator (e.g. 12.34)
+      } else {
+        token = token.replace(/\./g, '')
+      }
+    }
+  }
+
+  const n = Number(token)
   return Number.isFinite(n) ? n : null
+}
+
+function createUtcDate(year: number, month: number, day: number): Date | null {
+  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) return null
+  if (year < 1000 || year > 3000) return null
+  if (month < 1 || month > 12) return null
+  if (day < 1 || day > 31) return null
+  const date = new Date(Date.UTC(year, month - 1, day))
+  if (
+    date.getUTCFullYear() !== year ||
+    date.getUTCMonth() !== month - 1 ||
+    date.getUTCDate() !== day
+  ) {
+    return null
+  }
+  return date
+}
+
+function excelSerialToDate(serial: number): Date | null {
+  if (!Number.isFinite(serial) || serial <= 0) return null
+  const wholeDays = Math.floor(serial)
+  const msPerDay = 24 * 60 * 60 * 1000
+  // Excel serial day 1 = 1900-01-01; compensate leap-year bug around 1900-02-29
+  const excelEpochUtcMs = Date.UTC(1899, 11, 30)
+  const leapBugOffset = wholeDays >= 60 ? -1 : 0
+  const date = new Date(excelEpochUtcMs + (wholeDays + leapBugOffset) * msPerDay)
+  return Number.isNaN(+date) ? null : date
+}
+
+function parseDateValue(v: unknown): Date | null {
+  if (v instanceof Date) {
+    return Number.isNaN(+v) ? null : v
+  }
+
+  if (typeof v === 'number' && Number.isFinite(v)) {
+    if (v > 1e12) {
+      const date = new Date(v)
+      return Number.isNaN(+date) ? null : date
+    }
+    if (v > 1e9) {
+      const date = new Date(v * 1000)
+      return Number.isNaN(+date) ? null : date
+    }
+    if (v >= 1000 && v <= 3000 && Number.isInteger(v)) {
+      return createUtcDate(v, 1, 1)
+    }
+    const excelDate = excelSerialToDate(v)
+    if (excelDate) return excelDate
+    return null
+  }
+
+  if (typeof v !== 'string') return null
+  const s = v.trim().replace(/^["']|["']$/g, '')
+  if (!s) return null
+
+  if (/^\d{4}$/.test(s)) {
+    return createUtcDate(Number(s), 1, 1)
+  }
+
+  const yearMonth = s.match(/^(\d{4})[./-](\d{1,2})$/)
+  if (yearMonth) {
+    return createUtcDate(Number(yearMonth[1]), Number(yearMonth[2]), 1)
+  }
+
+  const ymd = s.match(/^(\d{4})[./-](\d{1,2})[./-](\d{1,2})$/)
+  if (ymd) {
+    return createUtcDate(Number(ymd[1]), Number(ymd[2]), Number(ymd[3]))
+  }
+
+  const dmyOrMdy = s.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})$/)
+  if (dmyOrMdy) {
+    const a = Number(dmyOrMdy[1])
+    const b = Number(dmyOrMdy[2])
+    const yRaw = Number(dmyOrMdy[3])
+    const y = yRaw < 100 ? 2000 + yRaw : yRaw
+    if (a > 12 && b <= 12) return createUtcDate(y, b, a)
+    if (b > 12 && a <= 12) return createUtcDate(y, a, b)
+    return createUtcDate(y, b, a)
+  }
+
+  const ts = Date.parse(s)
+  if (!Number.isNaN(ts)) {
+    const date = new Date(ts)
+    return Number.isNaN(+date) ? null : date
+  }
+
+  return null
 }
 
 function hashHue(name: string) {
@@ -86,14 +239,33 @@ function hashHue(name: string) {
 export function importBarChartRaceCsv(csvText: string, locale: AppLocale = 'ru'): CsvImportResult {
   const l = locale === 'ru' ? 'ru' : 'en'
   const text = stripBom(csvText.trim())
+  const {
+    normalizedText,
+    delimiter,
+    shouldDropFirstLine,
+    first,
+    second,
+  } = preprocessCsvText(text)
+  console.info('[csv-import] raw text preview', {
+    length: text.length,
+    preview: text.slice(0, 500),
+    delimiter,
+    skippedFirstLine: shouldDropFirstLine,
+    firstLine: first,
+    secondLine: second,
+  })
   if (!text) return { ok: false, error: CSV_ERRORS[l].emptyFile }
 
   let rows: Record<string, unknown>[]
   try {
-    rows = d3.csvParse(text, (raw) => raw as Record<string, unknown>)
+    rows = d3.dsvFormat(delimiter).parse(normalizedText, (raw) => raw as Record<string, unknown>)
   } catch {
     return { ok: false, error: CSV_ERRORS[l].parseFailed }
   }
+  console.info('[csv-import] parsed rows', {
+    count: rows.length,
+    firstRows: rows.slice(0, 5),
+  })
 
   if (rows.length === 0) return { ok: false, error: CSV_ERRORS[l].noRows }
 
@@ -103,6 +275,13 @@ export function importBarChartRaceCsv(csvText: string, locale: AppLocale = 'ru')
   const keyName = findColumn(sample, ['name', 'имя', 'label', 'brand'])
   const keyValue = findColumn(sample, ['value', 'значение', 'val'])
   const keyCategory = findColumn(sample, ['category', 'категория', 'sector'])
+  console.info('[csv-import] detected columns', {
+    keyDate,
+    keyPeriod,
+    keyName,
+    keyValue,
+    keyCategory,
+  })
 
   if (!keyName || !keyValue) {
     return {
@@ -142,14 +321,8 @@ export function importBarChartRaceCsv(csvText: string, locale: AppLocale = 'ru')
     let sortKey: number
 
     if (keyDate && raw[keyDate] !== '' && raw[keyDate] !== undefined) {
-      const d = raw[keyDate]
-      const date =
-        d instanceof Date
-          ? d
-          : typeof d === 'string' || typeof d === 'number'
-            ? new Date(d)
-            : null
-      if (!date || Number.isNaN(+date)) continue
+      const date = parseDateValue(raw[keyDate])
+      if (!date) continue
       periodLabel = String(date.getUTCFullYear())
       sortKey = +date
     } else {
@@ -174,6 +347,10 @@ export function importBarChartRaceCsv(csvText: string, locale: AppLocale = 'ru')
   if (normalized.length === 0) {
     return { ok: false, error: CSV_ERRORS[l].noValidRows }
   }
+  console.info('[csv-import] normalized rows', {
+    count: normalized.length,
+    firstRows: normalized.slice(0, 5),
+  })
 
   const byPeriodLabel = d3.group(normalized, (d) => d.periodLabel)
   const periodLabels = Array.from(byPeriodLabel.keys()).sort((a, b) => {
@@ -224,6 +401,11 @@ export function importBarChartRaceCsv(csvText: string, locale: AppLocale = 'ru')
         ? colorByCategory(cat)
         : `hsl(${hashHue(name)} 65% 45%)`
     return { id: crypto.randomUUID(), name, color }
+  })
+  console.info('[csv-import] result summary', {
+    namesCount: names.length,
+    periodsCount: periods.length,
+    firstPeriod: periods[0]?.period ?? null,
   })
 
   return { ok: true, names, periods }
