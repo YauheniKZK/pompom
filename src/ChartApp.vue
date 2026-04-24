@@ -108,6 +108,7 @@ function setLocale(next: AppLocale) {
 
 const chartTitle = ref(t('chart.defaultTitle'))
 const chartDescription = ref(t('chart.defaultDescription'))
+const valuePrefix = ref('')
 const labelLayoutMode = ref<LabelLayoutMode>('mode3')
 const BAR_HEIGHT_PX = 50
 const NAME_FONT_SIZE_PX = 13
@@ -805,6 +806,7 @@ const onCsvFile = (e: Event) => {
       return
     }
     names.value = res.names.map((item) => ({ ...item }))
+    valuePrefix.value = (res.symbol ?? '').trim()
     periods.value = res.periods.map((p) => ({
       ...p,
       values: p.values.map((v) => ({ ...v })),
@@ -930,6 +932,7 @@ const renderPreviewChart = (rawData: RawDataItem[]) => {
     margin: explainedMargin,
     color: getBarColor,
     imageForName: getBarImage,
+    valuePrefix: valuePrefix.value,
     labelFill: '#334155',
     labelLayoutMode: labelLayoutMode.value,
     valueFontSizePx: VALUE_FONT_SIZE_PX,
@@ -973,6 +976,7 @@ const runBarChartRace = async (rawData: RawDataItem[], settings: ChartRenderSett
     margin: explainedMargin,
     color: getBarColor,
     imageForName: getBarImage,
+    valuePrefix: valuePrefix.value,
     labelFill: settings.labelColor,
     labelLayoutMode: settings.labelLayoutMode,
     valueFontSizePx: VALUE_FONT_SIZE_PX,

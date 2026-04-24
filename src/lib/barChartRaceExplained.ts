@@ -30,6 +30,8 @@ export type ExplainedChartOptions = {
   periodLabelPosition: 'top' | 'bottom'
   /** URL картинки для имени (если есть) */
   imageForName?: (name: string) => string | undefined
+  /** Префикс перед значением (например "$") */
+  valuePrefix?: string
 }
 
 /** D3: дочерний transition наследует родительский — ослабляем тип для TS */
@@ -500,6 +502,8 @@ export function createExplainedContext(
   const nf = nameframes(keyframes)
   const { prev, next } = prevNextMaps(nf)
   const formatNumber = d3.format(',d')
+  const valuePrefix = options.valuePrefix?.trim() ?? ''
+  const formatValue = (n: number) => `${valuePrefix}${formatNumber(n)}`
 
   const svg = d3.select(svgEl)
   svg.selectAll('*').remove()
@@ -517,7 +521,7 @@ export function createExplainedContext(
     prev,
     y,
     next,
-    formatNumber,
+    formatValue,
     labelFont,
     options.labelFill,
     options.labelLayoutMode,

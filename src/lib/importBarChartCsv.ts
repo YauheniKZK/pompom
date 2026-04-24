@@ -17,6 +17,7 @@ export type CsvImportOk = {
   ok: true
   names: ImportedNameItem[]
   periods: ImportedPeriodForm[]
+  symbol?: string
 }
 
 export type CsvImportErr = {
@@ -286,12 +287,14 @@ export function importBarChartRaceCsv(csvText: string, locale: AppLocale = 'ru')
   const keyPeriod = findColumn(sample, ['period', 'период', 'year', 'год'])
   const keyName = findColumn(sample, ['name', 'имя', 'label', 'brand'])
   const keyValue = findColumn(sample, ['value', 'значение', 'val'])
+  const keySymbol = findColumn(sample, ['symbol', 'символ', 'currency', 'валюта'])
   const keyCategory = findColumn(sample, ['category', 'категория', 'sector'])
   console.info('[csv-import] detected columns', {
     keyDate,
     keyPeriod,
     keyName,
     keyValue,
+    keySymbol,
     keyCategory,
   })
 
@@ -319,6 +322,7 @@ export function importBarChartRaceCsv(csvText: string, locale: AppLocale = 'ru')
 
   const normalized: Norm[] = []
   const valueQualifiers = new Set<string>()
+  let detectedSymbol: string | undefined
   /** Порядок периода при отсутствии date — по первому появлению в файле */
   const periodOrder = new Map<string, number>()
   let periodOrdinal = 0
@@ -331,6 +335,10 @@ export function importBarChartRaceCsv(csvText: string, locale: AppLocale = 'ru')
     if (val === null || val < 0) continue
     const qualifier = extractValueQualifier(raw[keyValue])
     if (qualifier) valueQualifiers.add(qualifier)
+    if (!detectedSymbol && keySymbol) {
+      const maybeSymbol = String(raw[keySymbol] ?? '').trim()
+      if (maybeSymbol) detectedSymbol = maybeSymbol
+    }
 
     let periodLabel: string
     let sortKey: number
@@ -424,5 +432,5 @@ export function importBarChartRaceCsv(csvText: string, locale: AppLocale = 'ru')
     valueQualifiers: Array.from(valueQualifiers),
   })
 
-  return { ok: true, names, periods }
+  return { ok: true, names, periods, symbol: detectedSymbol }
 }
