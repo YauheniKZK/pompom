@@ -165,7 +165,7 @@ export function bars(
   imageForName?: (name: string) => string | undefined,
 ) {
   return function barsComponent(svg: d3.Selection<SVGSVGElement, unknown, null, undefined>) {
-    const clipPrefix = `bar-icon-clip-${Math.random().toString(36).slice(2, 10)}`
+    const patternPrefix = `bar-icon-pattern-${Math.random().toString(36).slice(2, 10)}`
     const nameHash = (name: string) => {
       let h = 2166136261
       for (let i = 0; i < name.length; i++) {
@@ -174,12 +174,12 @@ export function bars(
       }
       return (h >>> 0).toString(36)
     }
-    const clipIdForName = (name: string) => `${clipPrefix}-${nameHash(name)}`
+    const patternIdForName = (name: string) => `${patternPrefix}-${nameHash(name)}`
     let bar = svg
       .append('g')
       .attr('fill-opacity', 0.6)
       .selectAll<SVGRectElement, RankedRow>('rect')
-    let barIcons = svg.append('g').selectAll<SVGImageElement, RankedRow>('image')
+    let barIcons = svg.append('g').selectAll<SVGRectElement, RankedRow>('rect.bar-icon')
     const defs = svg.append('defs')
 
     const iconPadding = 4
@@ -202,6 +202,30 @@ export function bars(
     ) {
       const sub = inheritTransition(transition)
       const [, data] = keyframe
+      const iconData = data.slice(0, n).filter((d) => Boolean(imageForName?.(d.name)))
+
+      const patterns = defs
+        .selectAll<SVGPatternElement, RankedRow>('pattern.bar-icon-pattern')
+        .data(iconData, (d) => d.name)
+      patterns.exit().remove()
+      const patternsEnter = patterns
+        .enter()
+        .append('pattern')
+        .attr('class', 'bar-icon-pattern')
+        .attr('id', (d) => patternIdForName(d.name))
+        .attr('patternUnits', 'userSpaceOnUse')
+      patternsEnter.append('image').attr('preserveAspectRatio', 'xMidYMid slice')
+      patterns
+        .merge(patternsEnter)
+        .attr('width', () => iconSize())
+        .attr('height', () => iconSize())
+        .attr('x', (d) => iconX(d))
+        .attr('y', (d) => iconY(d))
+        .select('image')
+        .attr('width', () => iconSize())
+        .attr('height', () => iconSize())
+        .attr('href', (d) => imageForName?.(d.name) ?? '')
+
       bar = bar
         .data(data.slice(0, n), (d) => d.name)
         .join(
@@ -229,22 +253,24 @@ export function bars(
         )
 
       barIcons = barIcons
-        .data(data.slice(0, n).filter((d) => Boolean(imageForName?.(d.name))), (d) => d.name)
+        .data(iconData, (d) => d.name)
         .join(
           (enter) =>
             enter
-              .append('image')
+              .append('rect')
+              .attr('class', 'bar-icon')
               .attr('width', () => iconSize())
               .attr('height', () => iconSize())
-              .attr('preserveAspectRatio', 'xMidYMid slice')
-              .attr('clip-path', (d) => `url(#${clipIdForName(d.name)})`)
+              .attr('rx', 5)
+              .attr('ry', 5)
+              .attr('fill', (d) => `url(#${patternIdForName(d.name)})`)
               .attr('x', (d) => iconX(prev.get(d) ?? d))
               .attr('y', (d) => iconY(prev.get(d) ?? d))
-              .attr('href', (d) => imageForName?.(d.name) ?? ''),
+              .attr('opacity', 1),
           (update) =>
             update
-              .attr('href', (d) => imageForName?.(d.name) ?? '')
-              .attr('clip-path', (d) => `url(#${clipIdForName(d.name)})`),
+              .attr('fill', (d) => `url(#${patternIdForName(d.name)})`)
+              .attr('opacity', 1),
           (exit) =>
             exit
               .transition(sub)
@@ -255,31 +281,9 @@ export function bars(
         .call((sel) =>
           sel
             .transition(sub)
-            .attr('width', () => iconSize())
-            .attr('height', () => iconSize())
             .attr('x', (d) => iconX(d))
             .attr('y', (d) => iconY(d)),
         )
-
-      const iconData = data.slice(0, n).filter((d) => Boolean(imageForName?.(d.name)))
-      const iconClipPaths = defs
-        .selectAll<SVGClipPathElement, RankedRow>('clipPath.bar-icon-clip')
-        .data(iconData, (d) => d.name)
-      iconClipPaths.exit().remove()
-      const iconClipPathsEnter = iconClipPaths
-        .enter()
-        .append('clipPath')
-        .attr('class', 'bar-icon-clip')
-        .attr('id', (d) => clipIdForName(d.name))
-      iconClipPathsEnter
-        .append('rect')
-        .merge(iconClipPaths.select('rect'))
-        .attr('rx', 5)
-        .attr('ry', 5)
-        .attr('width', () => iconSize())
-        .attr('height', () => iconSize())
-        .attr('x', (d) => iconX(d))
-        .attr('y', (d) => iconY(d))
       return bar
     }
   }
