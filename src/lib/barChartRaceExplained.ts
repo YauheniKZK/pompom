@@ -28,6 +28,8 @@ export type ExplainedChartOptions = {
   valueFontSizePx: number
   /** Положение подписи периода на графике */
   periodLabelPosition: 'top' | 'bottom'
+  /** URL картинки для имени (если есть) */
+  imageForName?: (name: string) => string | undefined
 }
 
 /** D3: дочерний transition наследует родительский — ослабляем тип для TS */
@@ -133,6 +135,10 @@ export function chartHeight(margin: { top: number; bottom: number }, barSize: nu
   return margin.top + barSize * n + margin.bottom
 }
 
+function resolveBarIconSizePx(valueFontSizePx: number) {
+  return Math.max(18, Math.min(32, Math.round(valueFontSizePx * 2.1)))
+}
+
 export function makeScales(
   width: number,
   margin: { left: number; right: number; top: number },
@@ -155,12 +161,36 @@ export function bars(
   x: d3.ScaleLinear<number, number>,
   prev: Map<RankedRow, RankedRow>,
   next: Map<RankedRow, RankedRow>,
+  iconSizePx: number,
+  imageForName?: (name: string) => string | undefined,
 ) {
   return function barsComponent(svg: d3.Selection<SVGSVGElement, unknown, null, undefined>) {
+    const clipPrefix = `bar-icon-clip-${Math.random().toString(36).slice(2, 10)}`
+    const clipIdForName = (name: string) =>
+      `${clipPrefix}-${name
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '') || 'item'}`
     let bar = svg
       .append('g')
       .attr('fill-opacity', 0.6)
       .selectAll<SVGRectElement, RankedRow>('rect')
+    let barIcons = svg.append('g').selectAll<SVGImageElement, RankedRow>('image')
+    let iconClipRects = svg.append('defs').selectAll<SVGRectElement, RankedRow>('clipPath > rect')
+
+    const iconPadding = 4
+    const iconSize = () => iconSizePx
+    const iconX = (d: RankedRow) => {
+      const size = iconSize()
+      const start = x(0)
+      const end = x(d.value)
+      const rightAligned = end - size - iconPadding
+      return Math.max(start + iconPadding, rightAligned)
+    }
+    const iconY = (d: RankedRow) => {
+      const size = iconSize()
+      return (y(String(d.rank)) ?? 0) + (y.bandwidth() - size) / 2
+    }
 
     return function update(
       keyframe: [Date, RankedRow[]],
@@ -193,6 +223,65 @@ export function bars(
             .attr('y', (d) => y(String(d.rank))!)
             .attr('width', (d) => x(d.value) - x(0)),
         )
+
+      barIcons = barIcons
+        .data(data.slice(0, n).filter((d) => Boolean(imageForName?.(d.name))), (d) => d.name)
+        .join(
+          (enter) =>
+            enter
+              .append('image')
+              .attr('width', () => iconSize())
+              .attr('height', () => iconSize())
+              .attr('preserveAspectRatio', 'xMidYMid slice')
+              .attr('clip-path', (d) => `url(#${clipIdForName(d.name)})`)
+              .attr('x', (d) => iconX(prev.get(d) ?? d))
+              .attr('y', (d) => iconY(prev.get(d) ?? d))
+              .attr('href', (d) => imageForName?.(d.name) ?? ''),
+          (update) =>
+            update
+              .attr('href', (d) => imageForName?.(d.name) ?? '')
+              .attr('clip-path', (d) => `url(#${clipIdForName(d.name)})`),
+          (exit) =>
+            exit
+              .transition(sub)
+              .remove()
+              .attr('x', (d) => iconX(next.get(d) ?? d))
+              .attr('y', (d) => iconY(next.get(d) ?? d)),
+        )
+        .call((sel) =>
+          sel
+            .transition(sub)
+            .attr('width', () => iconSize())
+            .attr('height', () => iconSize())
+            .attr('x', (d) => iconX(d))
+            .attr('y', (d) => iconY(d)),
+        )
+
+      const iconData = data.slice(0, n).filter((d) => Boolean(imageForName?.(d.name)))
+      const iconClipPaths = svg
+        .select('defs')
+        .selectAll<SVGClipPathElement, RankedRow>('clipPath')
+        .data(iconData, (d) => d.name)
+      iconClipPaths.exit().remove()
+      const iconClipPathsEnter = iconClipPaths
+        .enter()
+        .append('clipPath')
+        .attr('id', (d) => clipIdForName(d.name))
+      iconClipRects = iconClipPathsEnter
+        .append('rect')
+        .merge(iconClipPaths.select('rect'))
+        .attr('rx', 5)
+        .attr('ry', 5)
+        .attr('width', () => iconSize())
+        .attr('height', () => iconSize())
+        .attr('x', (d) => iconX(d))
+        .attr('y', (d) => iconY(d))
+      iconClipRects
+        .transition(sub)
+        .attr('width', () => iconSize())
+        .attr('height', () => iconSize())
+        .attr('x', (d) => iconX(d))
+        .attr('y', (d) => iconY(d))
       return bar
     }
   }
@@ -209,6 +298,8 @@ export function labels(
   labelFill: string,
   labelLayoutMode: 'mode1' | 'mode2' | 'mode3' | 'mode4',
   valueFontSizePx: number,
+  iconSizePx: number,
+  imageForName?: (name: string) => string | undefined,
 ) {
   return function labelsComponent(svg: d3.Selection<SVGSVGElement, unknown, null, undefined>) {
     const isLeftMode = labelLayoutMode === 'mode4'
@@ -216,13 +307,20 @@ export function labels(
     const isStacked = labelLayoutMode === 'mode3' || labelLayoutMode === 'mode4'
     const anchor: 'start' | 'end' = isLeftMode ? 'start' : 'end'
     const xOffset = isLeftMode ? 6 : -6
+    const iconSize = () => iconSizePx
+    const iconGap = 6
+    const textPaddingFromIcon = 4
 
-    const labelX = (d: RankedRow) => (isLeftMode ? x(0) : x(d.value))
+    const labelX = (d: RankedRow) => {
+      if (isLeftMode) return x(0)
+      const hasImage = Boolean(imageForName?.(d.name))
+      const extraShift = hasImage ? iconSize() + iconGap + textPaddingFromIcon : 0
+      return x(d.value) - extraShift
+    }
     const labelTransform = (d: RankedRow) => `translate(${labelX(d)},${y(String(d.rank))})`
 
     const valueDy = isStacked ? '1.15em' : '0em'
     const valueDx = isSingleLine ? '0.55em' : '0em'
-
     let label = svg
       .append('g')
       .style('font', labelFont)
@@ -404,8 +502,9 @@ export function createExplainedContext(
   svg.attr('preserveAspectRatio', 'xMinYMin meet')
 
   const colorFn = (d: RankedRow) => options.color(d.name)
+  const iconSizePx = resolveBarIconSizePx(options.valueFontSizePx)
 
-  const updateBars = bars(n, colorFn, y, x, prev, next)(svg)
+  const updateBars = bars(n, colorFn, y, x, prev, next, iconSizePx, options.imageForName)(svg)
   const updateAxis = axis(margin, x, width, barSize, n, y)(svg)
   const updateLabels = labels(
     n,
@@ -418,6 +517,8 @@ export function createExplainedContext(
     options.labelFill,
     options.labelLayoutMode,
     options.valueFontSizePx,
+    iconSizePx,
+    options.imageForName,
   )(svg)
   const updateTicker = (
     _: [Date, RankedRow[]],

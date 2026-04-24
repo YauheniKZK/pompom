@@ -33,6 +33,7 @@ type NameItem = {
   id: string
   name: string
   color: string
+  imageUrl?: string
 }
 
 type PeriodForm = {
@@ -201,6 +202,10 @@ const svgRef = ref<SVGSVGElement | null>(null)
 /** SVG в полноэкранной панели на узких экранах (< lg) */
 const svgRefMobile = ref<SVGSVGElement | null>(null)
 const csvFileInput = ref<HTMLInputElement | null>(null)
+const nameImageFileInput = ref<HTMLInputElement | null>(null)
+const pendingNameImageId = ref('')
+let imagePickerFocusCleanup: (() => void) | null = null
+let waitingNameImageSelection = false
 /** Совпадает с Tailwind `lg:` (1024px): мобильная раскладка графика */
 const isMobileLayout = ref(
   typeof window !== 'undefined' ? window.innerWidth < 1024 : false,
@@ -577,6 +582,7 @@ const selectedPeriod = computed(() =>
 
 const getNameByName = (name: string) => names.value.find((item) => item.name === name)
 const getBarColor = (name: string) => getNameByName(name)?.color ?? '#64748b'
+const getBarImage = (name: string) => getNameByName(name)?.imageUrl
 
 const randomColor = () =>
   `#${Math.floor(Math.random() * 0xffffff)
@@ -712,6 +718,76 @@ const clearAllSampleData = () => {
 
 const triggerCsvPick = () => {
   csvFileInput.value?.click()
+}
+
+const triggerNameImagePick = (nameId: string) => {
+  imagePickerFocusCleanup?.()
+  pendingNameImageId.value = nameId
+  waitingNameImageSelection = true
+  const onWindowFocus = () => {
+    window.setTimeout(() => {
+      if (waitingNameImageSelection && !nameImageFileInput.value?.files?.length) {
+        pendingNameImageId.value = ''
+        waitingNameImageSelection = false
+      }
+      imagePickerFocusCleanup?.()
+    }, 250)
+  }
+  window.addEventListener('focus', onWindowFocus, { once: true })
+  imagePickerFocusCleanup = () => {
+    window.removeEventListener('focus', onWindowFocus)
+    imagePickerFocusCleanup = null
+  }
+  nameImageFileInput.value?.click()
+}
+
+const clearNameImage = (nameId: string) => {
+  const item = names.value.find((x) => x.id === nameId)
+  if (!item) return
+  item.imageUrl = undefined
+  if (!isAnimating.value && countdown.value === null) {
+    renderPreviewChart(collectDataForPreview())
+  }
+}
+
+const onNameImageFile = (e: Event) => {
+  waitingNameImageSelection = false
+  imagePickerFocusCleanup?.()
+  const input = e.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (!file || !pendingNameImageId.value) {
+    pendingNameImageId.value = ''
+    return
+  }
+  if (!file.type.startsWith('image/')) {
+    pendingNameImageId.value = ''
+    return
+  }
+  const targetId = pendingNameImageId.value
+  pendingNameImageId.value = ''
+  const reader = new FileReader()
+  reader.onload = () => {
+    const result = String(reader.result ?? '')
+    if (!result) {
+      pendingNameImageId.value = ''
+      return
+    }
+    const item = names.value.find((x) => x.id === targetId)
+    if (!item) {
+      pendingNameImageId.value = ''
+      return
+    }
+    item.imageUrl = result
+    if (!isAnimating.value && countdown.value === null) {
+      renderPreviewChart(collectDataForPreview())
+    }
+    pendingNameImageId.value = ''
+  }
+  reader.onerror = () => {
+    pendingNameImageId.value = ''
+  }
+  reader.readAsDataURL(file)
 }
 
 const onCsvFile = (e: Event) => {
@@ -853,6 +929,7 @@ const renderPreviewChart = (rawData: RawDataItem[]) => {
     keyframeSteps,
     margin: explainedMargin,
     color: getBarColor,
+    imageForName: getBarImage,
     labelFill: '#334155',
     labelLayoutMode: labelLayoutMode.value,
     valueFontSizePx: VALUE_FONT_SIZE_PX,
@@ -895,6 +972,7 @@ const runBarChartRace = async (rawData: RawDataItem[], settings: ChartRenderSett
     keyframeSteps,
     margin: explainedMargin,
     color: getBarColor,
+    imageForName: getBarImage,
     labelFill: settings.labelColor,
     labelLayoutMode: settings.labelLayoutMode,
     valueFontSizePx: VALUE_FONT_SIZE_PX,
@@ -1294,6 +1372,13 @@ onMounted(() => {
             class="sr-only"
             @change="onCsvFile"
           />
+          <input
+            ref="nameImageFileInput"
+            type="file"
+            accept="image/*"
+            class="sr-only"
+            @change="onNameImageFile"
+          />
           <button
             type="button"
             class="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-800 hover:bg-slate-50 sm:px-4 sm:py-2 sm:text-sm"
@@ -1375,12 +1460,57 @@ onMounted(() => {
           </div>
 
           <div class="flex flex-wrap gap-1.5 sm:gap-2">
-            <span
+            <div
               v-for="nameItem in names"
               :key="nameItem.id"
-              class="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700 sm:gap-2 sm:px-3 sm:py-1.5 sm:text-sm"
+              class="inline-flex items-center gap-1.5 rounded-lg border bg-white px-2 py-1 text-xs text-slate-700 transition sm:gap-2 sm:px-3 sm:py-1.5 sm:text-sm"
+              :class="
+                pendingNameImageId === nameItem.id
+                  ? 'border-blue-500 ring-2 ring-blue-200'
+                  : 'border-slate-300'
+              "
             >
-              {{ nameItem.name }}
+              <button
+                type="button"
+                class="inline-flex items-center rounded text-left hover:text-slate-900"
+                title="Загрузить изображение"
+                @click="triggerNameImagePick(nameItem.id)"
+              >
+                <img
+                  v-if="nameItem.imageUrl"
+                  :src="nameItem.imageUrl"
+                  alt=""
+                  class="h-5 w-5 rounded-lg object-cover ring-1 ring-slate-200 sm:h-6 sm:w-6"
+                />
+                <span
+                  v-else
+                  class="inline-flex h-5 w-5 items-center justify-center rounded-lg bg-slate-100 text-slate-400 ring-1 ring-slate-200 sm:h-6 sm:w-6"
+                  aria-hidden="true"
+                >
+                  <svg class="h-3.5 w-3.5 sm:h-4 sm:w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="3" y="5" width="18" height="14" rx="2" />
+                    <circle cx="8.5" cy="10" r="1.2" fill="currentColor" stroke="none" />
+                    <path d="M21 15l-4.5-4.5L9 18" />
+                  </svg>
+                </span>
+              </button>
+              <button
+                v-if="nameItem.imageUrl"
+                type="button"
+                class="-ml-1 text-slate-400 hover:text-slate-700"
+                title="Убрать изображение"
+                @click.stop="clearNameImage(nameItem.id)"
+              >
+                🗑
+              </button>
+              <button
+                type="button"
+                class="rounded text-left hover:text-slate-900"
+                title="Загрузить изображение"
+                @click="triggerNameImagePick(nameItem.id)"
+              >
+                <span>{{ nameItem.name }}</span>
+              </button>
               <button
                 type="button"
                 class="text-red-500"
@@ -1388,7 +1518,7 @@ onMounted(() => {
               >
                 ×
               </button>
-            </span>
+            </div>
           </div>
         </div>
 

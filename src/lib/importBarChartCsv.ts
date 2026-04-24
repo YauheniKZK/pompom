@@ -139,6 +139,18 @@ function toNumber(v: unknown): number | null {
   return Number.isFinite(n) ? n : null
 }
 
+function extractValueQualifier(v: unknown): string | null {
+  if (v === null || v === undefined) return null
+  const raw = String(v).trim()
+  if (!raw) return null
+  const tokenMatch = raw.match(/[-+]?\d[\d\s.,]*/)
+  if (!tokenMatch || tokenMatch.index === undefined) return null
+  const prefix = raw.slice(0, tokenMatch.index).trim()
+  const suffix = raw.slice(tokenMatch.index + tokenMatch[0].length).trim()
+  const label = [prefix, suffix].filter(Boolean).join(' ').trim()
+  return label || null
+}
+
 function createUtcDate(year: number, month: number, day: number): Date | null {
   if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) return null
   if (year < 1000 || year > 3000) return null
@@ -306,6 +318,7 @@ export function importBarChartRaceCsv(csvText: string, locale: AppLocale = 'ru')
   }
 
   const normalized: Norm[] = []
+  const valueQualifiers = new Set<string>()
   /** Порядок периода при отсутствии date — по первому появлению в файле */
   const periodOrder = new Map<string, number>()
   let periodOrdinal = 0
@@ -316,6 +329,8 @@ export function importBarChartRaceCsv(csvText: string, locale: AppLocale = 'ru')
 
     const val = toNumber(raw[keyValue])
     if (val === null || val < 0) continue
+    const qualifier = extractValueQualifier(raw[keyValue])
+    if (qualifier) valueQualifiers.add(qualifier)
 
     let periodLabel: string
     let sortKey: number
@@ -406,6 +421,7 @@ export function importBarChartRaceCsv(csvText: string, locale: AppLocale = 'ru')
     namesCount: names.length,
     periodsCount: periods.length,
     firstPeriod: periods[0]?.period ?? null,
+    valueQualifiers: Array.from(valueQualifiers),
   })
 
   return { ok: true, names, periods }
